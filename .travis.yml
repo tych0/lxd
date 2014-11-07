@@ -11,7 +11,6 @@ before_install:
   - sudo apt-get update
 
 install:
-  - echo "manual" | sudo tee /etc/init/lxc-net.override
   - sudo apt-get install lxc lxc-dev
   - go get -v -d ./...
 
