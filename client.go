@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 )
@@ -16,7 +17,45 @@ type Client struct {
 	Remote  *RemoteConfig
 	http    http.Client
 	baseURL string
+	certf   string
+	keyf    string
 }
+
+func read_my_cert() (string, string, error) {
+	homedir := os.Getenv("HOME")
+	if homedir == "" {
+		return "", "", fmt.Errorf("Failed to find homedir")
+	}
+	certf := fmt.Sprintf("%s/.config/lxd/%s", homedir, "cert.pem")
+	keyf := fmt.Sprintf("%s/.config/lxd/%s", homedir, "key.pem")
+
+	_, err := os.Stat(certf)
+	_, err2 := os.Stat(keyf)
+	if err == nil && err2 == nil {
+		return certf, keyf, nil
+	}
+	if err == nil {
+		Debugf("%s already exists", certf)
+		return "", "", err2
+	}
+	if err2 == nil {
+		Debugf("%s already exists", keyf)
+		return "", "", err
+	}
+	dir := fmt.Sprintf("%s/.config/lxd", homedir)
+	err = os.MkdirAll(dir, 0750)
+	if err != nil {
+		return "", "", err
+	}
+
+	Debugf("creating cert: %s %s", certf, keyf)
+	err = GenCert(certf, keyf)
+	if err != nil {
+		return "", "", err
+	}
+	return certf, keyf, nil
+}
+
 
 // NewClient returns a new lxd client.
 func NewClient(config *Config, raw string) (*Client, string, error) {
@@ -27,6 +66,13 @@ func NewClient(config *Config, raw string) (*Client, string, error) {
 		//Timeout: 10 * time.Second,
 		},
 	}
+
+	certf, keyf, err := read_my_cert()
+	if err != nil {
+		return nil, "", err
+	}
+	c.certf = certf
+	c.keyf = keyf
 
 	result := strings.SplitN(raw, ":", 2)
 	var remote string

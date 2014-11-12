@@ -22,30 +22,6 @@ var verbose = gnuflag.Bool("v", false, "Enables verbose mode.")
 var debug = gnuflag.Bool("debug", false, "Enables debug mode.")
 var listenAddr = gnuflag.String("tcp", "", "TCP address to listen on in addition to the unix socket")
 
-func create_cert() error {
-	certf := lxd.VarPath("cert.pem")
-	keyf := lxd.VarPath("key.pem")
-	lxd.Debugf("looking for existing certificates: %s %s", certf, keyf)
-
-	_, err := os.Stat(certf)
-	_, err2 := os.Stat(keyf)
-	if err == nil && err2 == nil {
-		lxd.Debugf("certificates already exist")
-		return nil
-	}
-	if err == nil {
-		lxd.Debugf("%s already exists", certf)
-		return err2
-	}
-	if err2 == nil {
-		lxd.Debugf("%s already exists", keyf)
-		return err
-	}
-
-	lxd.Debugf("creating cert: %s %s", certf, keyf)
-	return lxd.GenCert(certf, keyf)
-}
-
 func run() error {
 	gnuflag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: lxd [options]\n\nOptions:\n\n    --tcp <addr:port>\n        Bind to addr:port.\n")
@@ -58,12 +34,6 @@ func run() error {
 		lxd.SetLogger(log.New(os.Stderr, "", log.LstdFlags))
 		lxd.SetDebug(*debug)
 	}
-
-	err := create_cert()
-	if err != nil {
-		return err
-	}
-	lxd.Debugf("created cert")
 
 	d, err := StartDaemon(*listenAddr)
 	if err != nil {
