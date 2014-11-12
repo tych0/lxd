@@ -20,6 +20,7 @@ type Client struct {
 	baseURL string
 	certf   string
 	keyf    string
+	cert    tls.Certificate
 }
 
 func read_my_cert() (string, string, error) {
@@ -60,8 +61,20 @@ func read_my_cert() (string, string, error) {
 
 // NewClient returns a new lxd client.
 func NewClient(config *Config, raw string) (*Client, string, error) {
+	certf, keyf, err := read_my_cert()
+	if err != nil {
+		return nil, "", err
+	}
+	cert, err := tls.LoadX509KeyPair(certf, keyf)
+	if err != nil {
+		return nil, "", err
+	}
+
 	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true,
+			Certificates: []tls.Certificate{cert},
+			MinVersion: tls.VersionTLS12,
+			MaxVersion: tls.VersionTLS12,},
 	}
 	c := Client{
 		config: *config,
@@ -72,12 +85,9 @@ func NewClient(config *Config, raw string) (*Client, string, error) {
 		},
 	}
 
-	certf, keyf, err := read_my_cert()
-	if err != nil {
-		return nil, "", err
-	}
 	c.certf = certf
 	c.keyf = keyf
+	c.cert = cert
 
 	result := strings.SplitN(raw, ":", 2)
 	var remote string
