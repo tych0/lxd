@@ -92,7 +92,7 @@ func NewClient(config *Config, raw string) (*Client, string, error) {
 		c.baseURL = "http://unix.socket"
 		c.http.Transport = &unixTransport
 	} else if r, ok := config.Remotes[remote]; ok {
-		c.baseURL = "http://" + r.Addr
+		c.baseURL = "https://" + r.Addr
 		c.Remote = &r
 	} else {
 		return nil, "", fmt.Errorf("unknown remote name: %q", config.DefaultRemote)

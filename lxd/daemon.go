@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net"
 	"net/http"
@@ -100,12 +101,12 @@ func StartDaemon(listenAddr string) (*Daemon, error) {
 
 	if listenAddr != "" {
 		// Watch out. There's a listener active which must be closed on errors.
-		tcpAddr, err := net.ResolveTCPAddr("tcp", listenAddr)
+		mycert, err := tls.LoadX509KeyPair(d.certf, d.keyf)
 		if err != nil {
-			d.unixl.Close()
-			return nil, fmt.Errorf("cannot resolve unix socket address: %v", err)
+			return nil, err
 		}
-		tcpl, err := net.ListenTCP("tcp", tcpAddr)
+		config := tls.Config{Certificates: []tls.Certificate{mycert}}
+		tcpl, err := tls.Listen("tcp", listenAddr, &config)
 		if err != nil {
 			d.unixl.Close()
 			return nil, fmt.Errorf("cannot listen on unix socket: %v", err)
