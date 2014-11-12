@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,14 +15,15 @@ import (
 
 // A Daemon can respond to requests from a lxd client.
 type Daemon struct {
-	tomb    tomb.Tomb
-	unixl   net.Listener
-	tcpl    net.Listener
-	id_map  *Idmap
-	lxcpath string
-	certf   string
-	keyf    string
-	mux     *http.ServeMux
+	tomb       tomb.Tomb
+	unixl      net.Listener
+	tcpl       net.Listener
+	id_map     *Idmap
+	lxcpath    string
+	certf      string
+	keyf       string
+	mux        *http.ServeMux
+	clientCA   *x509.CertPool
 }
 
 func read_my_cert() (string, string, error) {
@@ -70,8 +72,12 @@ func StartDaemon(listenAddr string) (*Daemon, error) {
 	d.certf = certf
 	d.keyf = keyf
 
+	// TODO load known client certificates
+	d.clientCA = x509.NewCertPool()
+
 	d.mux = http.NewServeMux()
 	d.mux.HandleFunc("/ping", d.servePing)
+	d.mux.HandleFunc("/trust/add", d.serveTrustAdd)
 	d.mux.HandleFunc("/create", d.serveCreate)
 	d.mux.HandleFunc("/shell", d.serveShell)
 	d.mux.HandleFunc("/list", d.serveList)

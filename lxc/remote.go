@@ -26,6 +26,19 @@ func (c *remoteCmd) usage() string {
 
 func (c *remoteCmd) flags() {}
 
+func do_add_server(config *lxd.Config, server string) error {
+	c, _, err := lxd.NewClient(config, server)
+	if err != nil {
+		return err
+	}
+	_, err = c.AddCertToServer()
+	if err != nil {
+		return err
+	}
+	fmt.Println("Client certificate stored at server: ", server)
+	return nil
+}
+
 func (c *remoteCmd) run(config *lxd.Config, args []string) error {
 	if len(args) < 1 {
 		return errArgs
@@ -39,6 +52,12 @@ func (c *remoteCmd) run(config *lxd.Config, args []string) error {
 
 		if rc, ok := config.Remotes[args[1]]; ok {
 			return fmt.Errorf("remote %s exists as <%s>", args[1], rc.Addr)
+		}
+
+		// todo - we'll need to check whether this is a lxd remote that handles /list/add
+		err := do_add_server(config, args[1])
+		if err != nil {
+			return err
 		}
 
 		if config.Remotes == nil {
@@ -57,6 +76,8 @@ func (c *remoteCmd) run(config *lxd.Config, args []string) error {
 		if config.DefaultRemote == args[1] {
 			config.DefaultRemote = ""
 		}
+
+		// TODO - remove stored server certificate
 
 		delete(config.Remotes, args[1])
 	case "list":

@@ -1,6 +1,7 @@
 package lxd
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -59,9 +60,13 @@ func read_my_cert() (string, string, error) {
 
 // NewClient returns a new lxd client.
 func NewClient(config *Config, raw string) (*Client, string, error) {
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
 	c := Client{
 		config: *config,
 		http:   http.Client{
+		Transport: tr,
 		// Added on Go 1.3. Wait until it's more popular.
 		//Timeout: 10 * time.Second,
 		},
@@ -158,6 +163,14 @@ func (c *Client) Ping() error {
 
 func (c *Client) List() (string, error) {
 	data, err := c.getstr("/list", nil)
+	if err != nil {
+		return "fail", err
+	}
+	return data, err
+}
+
+func (c *Client) AddCertToServer() (string, error) {
+	data, err := c.getstr("/trust/add", nil)
 	if err != nil {
 		return "fail", err
 	}
