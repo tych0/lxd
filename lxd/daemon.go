@@ -18,12 +18,57 @@ type Daemon struct {
 	tcpl    net.Listener
 	id_map  *Idmap
 	lxcpath string
+	certf   string
+	keyf    string
 	mux     *http.ServeMux
+}
+
+func read_my_cert() (string, string, error) {
+	certf := lxd.VarPath("cert.pem")
+	keyf := lxd.VarPath("key.pem")
+	lxd.Debugf("looking for existing certificates: %s %s", certf, keyf)
+
+	_, err := os.Stat(certf)
+	_, err2 := os.Stat(keyf)
+	if err == nil && err2 == nil {
+		return certf, keyf, nil
+	}
+	if err == nil {
+		lxd.Debugf("%s already exists", certf)
+		return "", "", err2
+	}
+	if err2 == nil {
+		lxd.Debugf("%s already exists", keyf)
+		return "", "", err
+	}
+	err = lxd.GenCert(certf, keyf)
+	if err != nil {
+		return "", "", err
+	}
+	return certf,  keyf, nil
 }
 
 // StartDaemon starts the lxd daemon with the provided configuration.
 func StartDaemon(listenAddr string) (*Daemon, error) {
 	d := &Daemon{}
+
+	d.lxcpath = lxd.VarPath("lxc")
+	err := os.MkdirAll(lxd.VarPath("/"), 0755)
+	if err != nil {
+		return nil, err
+	}
+	err = os.MkdirAll(d.lxcpath, 0755)
+	if err != nil {
+		return nil, err
+	}
+
+	certf, keyf, err := read_my_cert()
+	if err != nil {
+		return nil, err
+	}
+	d.certf = certf
+	d.keyf = keyf
+
 	d.mux = http.NewServeMux()
 	d.mux.HandleFunc("/ping", d.servePing)
 	d.mux.HandleFunc("/create", d.serveCreate)
@@ -33,7 +78,6 @@ func StartDaemon(listenAddr string) (*Daemon, error) {
 	d.mux.HandleFunc("/stop", buildByNameServe("stop", func(c *lxc.Container) error { return c.Stop() }, d))
 	d.mux.HandleFunc("/delete", buildByNameServe("delete", func(c *lxc.Container) error { return c.Destroy() }, d))
 
-	var err error
 	d.id_map, err = NewIdmap()
 	if err != nil {
 		return nil, err
@@ -43,16 +87,6 @@ func StartDaemon(listenAddr string) (*Daemon, error) {
 		d.id_map.Uidrange,
 		d.id_map.Gidmin,
 		d.id_map.Gidrange)
-
-	d.lxcpath = lxd.VarPath("lxc")
-	err = os.MkdirAll(lxd.VarPath("/"), 0755)
-	if err != nil {
-		return nil, err
-	}
-	err = os.MkdirAll(d.lxcpath, 0755)
-	if err != nil {
-		return nil, err
-	}
 
 	unixAddr, err := net.ResolveUnixAddr("unix", lxd.VarPath("unix.socket"))
 	if err != nil {
