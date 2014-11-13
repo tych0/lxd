@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -16,15 +17,15 @@ import (
 
 // A Daemon can respond to requests from a lxd client.
 type Daemon struct {
-	tomb       tomb.Tomb
-	unixl      net.Listener
-	tcpl       net.Listener
-	id_map     *Idmap
-	lxcpath    string
-	certf      string
-	keyf       string
-	mux        *http.ServeMux
-	clientCA   *x509.CertPool
+	tomb          tomb.Tomb
+	unixl         net.Listener
+	tcpl         net.Listener
+	id_map        *Idmap
+	lxcpath       string
+	certf         string
+	keyf          string
+	mux           *http.ServeMux
+	clientCerts   map[string]x509.Certificate
 }
 
 func read_my_cert() (string, string, error) {
@@ -53,8 +54,8 @@ func read_my_cert() (string, string, error) {
 }
 
 func read_saved_client_calist(d *Daemon) {
-	d.clientCA = x509.NewCertPool()
 	dirpath := lxd.VarPath("clientcerts")
+	d.clientCerts = make(map[string]x509.Certificate)
 	fil, err := ioutil.ReadDir(dirpath)
 	if err != nil {
 		return
@@ -71,7 +72,7 @@ func read_saved_client_calist(d *Daemon) {
 		if err != nil {
 			continue
 		}
-		d.clientCA.AddCert(cert)
+		d.clientCerts[n] = *cert
 		lxd.Debugf("Loaded cert %s", fnam)
 	}
 }
@@ -152,6 +153,18 @@ func StartDaemon(listenAddr string) (*Daemon, error) {
 
 	d.tomb.Go(func() error { return http.Serve(d.unixl, d.mux) })
 	return d, nil
+}
+
+func (d *Daemon) CheckTrustState(cert x509.Certificate) bool {
+	for k, v := range d.clientCerts {
+		if bytes.Compare(cert.Raw, v.Raw) == 0 {
+			lxd.Debugf("found cert for %s", k)
+			return true
+		} else {
+			lxd.Debugf("client cert != key for %s", k)
+		}
+	}
+	return false
 }
 
 var errStop = fmt.Errorf("requested stop")

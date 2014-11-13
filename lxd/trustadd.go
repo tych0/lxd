@@ -33,6 +33,6 @@ func (d *Daemon) serveTrustAdd(w http.ResponseWriter, r *http.Request) {
 		if err !=  nil {
 			lxd.Debugf("Error writing client certificate: %q", err)
 		}
-		d.clientCA.AddCert(r.TLS.PeerCertificates[i])
+		d.clientCerts[r.TLS.ServerName] = *r.TLS.PeerCertificates[i]
 	}
 }
