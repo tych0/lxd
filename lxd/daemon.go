@@ -115,6 +115,7 @@ func StartDaemon(listenAddr string) (*Daemon, error) {
 
 	d.mux = http.NewServeMux()
 	d.mux.HandleFunc("/ping", d.servePing)
+	d.mux.HandleFunc("/trust", d.serveTrust)
 	d.mux.HandleFunc("/trust/add", d.serveTrustAdd)
 	d.mux.HandleFunc("/create", d.serveCreate)
 	d.mux.HandleFunc("/shell", d.serveShell)

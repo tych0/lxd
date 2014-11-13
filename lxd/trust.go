@@ -3,34 +3,43 @@ package main
 import (
 	"crypto/rand"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 
-	"gopkg.in/lxc/go-lxc.v2"
-
-	"code.google.com/p/go.crypto/scrypt"
 	"github.com/lxc/lxd"
+	"code.google.com/p/go.crypto/scrypt"
 )
+
 
 const (
 	PW_SALT_BYTES = 32
 	PW_HASH_BYTES = 64
 )
 
-func save_new_password(password string) {
-
+func (d *Daemon) save_new_password(password string) {
 	salt := make([]byte, PW_SALT_BYTES)
 	_, err := io.ReadFull(rand.Reader, salt)
 	if err != nil {
-		log.Fatal(err)
+		lxd.Debugf("failed to get random bytes")
+		return
 	}
 
 	hash, err := scrypt.Key([]byte(password), salt, 1<<14, 8, 1, PW_HASH_BYTES)
 	if err != nil {
-		log.Fatal(err)
+		lxd.Debugf("failed to create hash")
+		return
 	}
 
-	fmt.Printf("%x\n", hash)
+	passfname := lxd.VarPath("adminpwd")
+	passOut, err := os.OpenFile(passfname, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
+	if err != nil {
+		return
+	}
+	passOut.Write(salt)
+	passOut.Write(hash)
+	passOut.Close()
+
 }
 
 /*
@@ -39,8 +48,8 @@ func save_new_password(password string) {
  */
 func (d *Daemon) serveTrust(w http.ResponseWriter, r *http.Request) {
 	lxd.Debugf("responding to list")
-	if !d.is_trusted_client(r.TLS) {
-		lxd.Debugf("List request from untrusted client")
+	if ! d.is_trusted_client(r.TLS) {
+		lxd.Debugf("Trust request from untrusted client")
 	}
 
 	password := r.FormValue("password")
@@ -49,5 +58,5 @@ func (d *Daemon) serveTrust(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	save_new_password(password)
+	d.save_new_password(password)
 }
