@@ -30,6 +30,7 @@ func (d *Daemon) serveTrustAdd(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		_, err = certout.Write(r.TLS.PeerCertificates[i].Raw)
+		certout.Close()
 		if err !=  nil {
 			lxd.Debugf("Error writing client certificate: %q", err)
 		}
