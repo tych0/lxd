@@ -11,15 +11,8 @@ import (
 
 func (d *Daemon) serveList(w http.ResponseWriter, r *http.Request) {
 	lxd.Debugf("responding to list")
-	if r.TLS == nil {
-		return
-	}
-	for i := range r.TLS.PeerCertificates {
-		if d.CheckTrustState(*r.TLS.PeerCertificates[i]) {
-			lxd.Debugf("cert is good!")
-		} else {
-			lxd.Debugf("cert is not saved!")
-		}
+	if ! d.is_trusted_client(r.TLS) {
+		lxd.Debugf("List request from untrusted client")
 	}
 
 	c := lxc.DefinedContainers(d.lxcpath)

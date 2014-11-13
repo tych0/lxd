@@ -77,6 +77,18 @@ func read_saved_client_calist(d *Daemon) {
 	}
 }
 
+func (d *Daemon) is_trusted_client(TLS *tls.ConnectionState) bool {
+	if TLS == nil {
+		return false
+	}
+	for i := range TLS.PeerCertificates {
+		if d.CheckTrustState(*TLS.PeerCertificates[i]) {
+			return true
+		}
+	}
+	return false
+}
+
 // StartDaemon starts the lxd daemon with the provided configuration.
 func StartDaemon(listenAddr string) (*Daemon, error) {
 	d := &Daemon{}

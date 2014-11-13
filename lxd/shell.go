@@ -15,6 +15,10 @@ import (
 func (d *Daemon) serveShell(w http.ResponseWriter, r *http.Request) {
 	lxd.Debugf("responding to shell")
 
+	if ! d.is_trusted_client(r.TLS) {
+		lxd.Debugf("List request from untrusted client")
+	}
+
 	name := r.FormValue("name")
 	if name == "" {
 		fmt.Fprintf(w, "failed parsing name")
