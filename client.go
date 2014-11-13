@@ -170,11 +170,26 @@ func (c *Client) Ping() error {
 	if err != nil {
 		return err
 	}
-	if data != Version {
-		return fmt.Errorf("version mismatch: mine: %q, daemon: %q", Version, data)
+
+	datav := strings.Split(string(data), " ")
+	if datav[0] != Version {
+		return fmt.Errorf("version mismatch: mine: %q, daemon: %q", Version, datav[0])
 	}
 	Debugf("pong received")
 	return nil
+}
+
+func (c *Client) AmTrusted() bool {
+	data, err := c.getstr("/ping", nil)
+	if err != nil {
+		return false
+	}
+
+	datav := strings.Split(string(data), " ")
+	if datav[1] == "trusted" {
+		return true
+	}
+	return false
 }
 
 func (c *Client) List() (string, error) {

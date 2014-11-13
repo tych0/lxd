@@ -34,6 +34,13 @@ func do_add_server(config *lxd.Config, server string) error {
 	if err != nil {
 		return err
 	}
+
+	if c.AmTrusted() {
+		// server already has our cert, so we're done
+		return nil
+	}
+
+	// TODO - query user and send password to server"
 	_, err = c.AddCertToServer()
 	if err != nil {
 		return err
