@@ -71,6 +71,7 @@ func NewClient(config *Config, raw string) (*Client, string, error) {
 	}
 
 	tlsconfig := &tls.Config{InsecureSkipVerify: true,
+			ClientAuth: tls.RequireAnyClientCert,
 			Certificates: []tls.Certificate{cert},
 			MinVersion: tls.VersionTLS12,
 			MaxVersion: tls.VersionTLS12,}

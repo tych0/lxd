@@ -112,7 +112,10 @@ func StartDaemon(listenAddr string) (*Daemon, error) {
 		if err != nil {
 			return nil, err
 		}
-		config := tls.Config{Certificates: []tls.Certificate{mycert}}
+		config := tls.Config{Certificates: []tls.Certificate{mycert},
+			ClientAuth: tls.RequireAnyClientCert,
+			MinVersion: tls.VersionTLS12,
+			MaxVersion: tls.VersionTLS12,}
 		tcpl, err := tls.Listen("tcp", listenAddr, &config)
 		if err != nil {
 			d.unixl.Close()
