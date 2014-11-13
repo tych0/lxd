@@ -48,8 +48,9 @@ func (d *Daemon) save_new_password(password string) {
  */
 func (d *Daemon) serveTrust(w http.ResponseWriter, r *http.Request) {
 	lxd.Debugf("responding to list")
-	if ! d.is_trusted_client(r.TLS) {
+	if ! d.is_trusted_client(r) {
 		lxd.Debugf("Trust request from untrusted client")
+		return
 	}
 
 	password := r.FormValue("password")

@@ -11,8 +11,9 @@ import (
 
 func (d *Daemon) serveList(w http.ResponseWriter, r *http.Request) {
 	lxd.Debugf("responding to list")
-	if ! d.is_trusted_client(r.TLS) {
+	if ! d.is_trusted_client(r) {
 		lxd.Debugf("List request from untrusted client")
+		return
 	}
 
 	c := lxc.DefinedContainers(d.lxcpath)

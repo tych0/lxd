@@ -77,12 +77,16 @@ func read_saved_client_calist(d *Daemon) {
 	}
 }
 
-func (d *Daemon) is_trusted_client(TLS *tls.ConnectionState) bool {
-	if TLS == nil {
+func (d *Daemon) is_trusted_client(r *http.Request) bool {
+	if r.RemoteAddr == "@" {
+		// Unix socket
+		return true
+	}
+	if r.TLS == nil {
 		return false
 	}
-	for i := range TLS.PeerCertificates {
-		if d.CheckTrustState(*TLS.PeerCertificates[i]) {
+	for i := range r.TLS.PeerCertificates {
+		if d.CheckTrustState(*r.TLS.PeerCertificates[i]) {
 			return true
 		}
 	}
