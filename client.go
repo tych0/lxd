@@ -70,11 +70,14 @@ func NewClient(config *Config, raw string) (*Client, string, error) {
 		return nil, "", err
 	}
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{InsecureSkipVerify: true,
+	tlsconfig := &tls.Config{InsecureSkipVerify: true,
 			Certificates: []tls.Certificate{cert},
 			MinVersion: tls.VersionTLS12,
-			MaxVersion: tls.VersionTLS12,},
+			MaxVersion: tls.VersionTLS12,}
+	tlsconfig.BuildNameToCertificate()
+
+	tr := &http.Transport{
+		TLSClientConfig: tlsconfig,
 	}
 	c := Client{
 		config: *config,
@@ -132,7 +135,9 @@ func (c *Client) getstr(base string, args map[string]string) (string, error) {
 }
 
 func (c *Client) get(elem ...string) ([]byte, error) {
-	resp, err := c.http.Get(c.url(elem...))
+	url := c.url(elem...)
+	Debugf("url is %s", url)
+	resp, err := c.http.Get(url)
 	if err != nil {
 		return nil, err
 	}

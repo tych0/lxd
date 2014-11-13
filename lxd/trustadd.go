@@ -15,4 +15,5 @@ func (d *Daemon) serveTrustAdd(w http.ResponseWriter, r *http.Request) {
 	}
 	lxd.Debugf("tls remote name is %s", r.TLS.ServerName)
 	lxd.Debugf("tls peercerts is %s", r.TLS.PeerCertificates)
+	lxd.Debugf("tls verifiedchains is %s", r.TLS.VerifiedChains)
 }
