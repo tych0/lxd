@@ -13,7 +13,7 @@ func (d *Daemon) serveCreate(w http.ResponseWriter, r *http.Request) {
 	lxd.Debugf("responding to create")
 
 	if ! d.is_trusted_client(r.TLS) {
-		lxd.Debugf("List request from untrusted client")
+		lxd.Debugf("Create request from untrusted client")
 	}
 
 	name := r.FormValue("name")

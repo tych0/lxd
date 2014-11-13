@@ -16,7 +16,7 @@ func (d *Daemon) serveShell(w http.ResponseWriter, r *http.Request) {
 	lxd.Debugf("responding to shell")
 
 	if ! d.is_trusted_client(r.TLS) {
-		lxd.Debugf("List request from untrusted client")
+		lxd.Debugf("Shell request from untrusted client")
 	}
 
 	name := r.FormValue("name")

@@ -16,7 +16,7 @@ func buildByNameServe(function string, f byname, d *Daemon) func(http.ResponseWr
 		lxd.Debugf("responding to %s", function)
 
 		if ! d.is_trusted_client(r.TLS) {
-			lxd.Debugf("List request from untrusted client")
+			lxd.Debugf("%s request from untrusted client", function)
 		}
 
 		name := r.FormValue("name")
