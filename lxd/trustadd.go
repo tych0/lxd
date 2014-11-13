@@ -16,7 +16,6 @@ func (d *Daemon) serveTrustAdd(w http.ResponseWriter, r *http.Request) {
 		lxd.Debugf("Could not get client certificate")
 		return
 	}
-	lxd.Debugf("tls remote name is %s", r.TLS.ServerName)
 
 	for i := range r.TLS.PeerCertificates {
 		peercert := &r.TLS.PeerCertificates[i]
@@ -25,7 +24,6 @@ func (d *Daemon) serveTrustAdd(w http.ResponseWriter, r *http.Request) {
 		dirname := lxd.VarPath("clientcerts")
 		err := os.MkdirAll(dirname, 0755)
 		filename := fmt.Sprintf("%s/%s", dirname, r.TLS.ServerName)
-		lxd.Debugf("filename is %s", filename)
 		certout, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			lxd.Debugf("Error opening file for  client certificate: %q", err)

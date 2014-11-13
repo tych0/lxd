@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"os"
@@ -51,6 +52,30 @@ func read_my_cert() (string, string, error) {
 	return certf,  keyf, nil
 }
 
+func read_saved_client_calist(d *Daemon) {
+	d.clientCA = x509.NewCertPool()
+	dirpath := lxd.VarPath("clientcerts")
+	fil, err := ioutil.ReadDir(dirpath)
+	if err != nil {
+		return
+	}
+	for i := range fil {
+		n := fil[i].Name()
+		fnam := fmt.Sprintf("%s/%s", dirpath, n)
+		cf, err := ioutil.ReadFile(fnam)
+		if err != nil {
+			continue
+		}
+
+		cert, err := x509.ParseCertificate(cf)
+		if err != nil {
+			continue
+		}
+		d.clientCA.AddCert(cert)
+		lxd.Debugf("Loaded cert %s", fnam)
+	}
+}
+
 // StartDaemon starts the lxd daemon with the provided configuration.
 func StartDaemon(listenAddr string) (*Daemon, error) {
 	d := &Daemon{}
@@ -73,7 +98,7 @@ func StartDaemon(listenAddr string) (*Daemon, error) {
 	d.keyf = keyf
 
 	// TODO load known client certificates
-	d.clientCA = x509.NewCertPool()
+	read_saved_client_calist(d)
 
 	d.mux = http.NewServeMux()
 	d.mux.HandleFunc("/ping", d.servePing)
