@@ -17,15 +17,23 @@ import (
 
 // A Daemon can respond to requests from a lxd client.
 type Daemon struct {
-	tomb          tomb.Tomb
-	unixl         net.Listener
-	tcpl         net.Listener
-	id_map        *Idmap
-	lxcpath       string
-	certf         string
-	keyf          string
-	mux           *http.ServeMux
-	clientCerts   map[string]x509.Certificate
+	tomb        tomb.Tomb
+	unixl       net.Listener
+	tcpl        net.Listener
+	id_map      *Idmap
+	lxcpath     string
+	certf       string
+	keyf        string
+	mux         *http.ServeMux
+	clientCerts map[string]x509.Certificate
+}
+
+type Command struct {
+	name   string
+	GET    func(d *Daemon, w http.ResponseWriter, r *http.Request)
+	PUT    func(d *Daemon, w http.ResponseWriter, r *http.Request)
+	POST   func(d *Daemon, w http.ResponseWriter, r *http.Request)
+	DELETE func(d *Daemon, w http.ResponseWriter, r *http.Request)
 }
 
 func read_my_cert() (string, string, error) {
@@ -93,6 +101,40 @@ func (d *Daemon) is_trusted_client(r *http.Request) bool {
 	return false
 }
 
+func (d *Daemon) createCmd(version string, c Command) {
+	uri := fmt.Sprintf("/%s/%s", version, c.name)
+	d.mux.HandleFunc(uri, func(w http.ResponseWriter, r *http.Request) {
+
+		lxd.Debugf("handling %s %s for %s", r.Method, r.URL.RequestURI(), c.name)
+		switch r.Method {
+		case "GET":
+			if c.GET == nil {
+				NotImplemented(w)
+			} else {
+				c.GET(d, w, r)
+			}
+		case "PUT":
+			if c.PUT == nil {
+				NotImplemented(w)
+			} else {
+				c.PUT(d, w, r)
+			}
+		case "POST":
+			if c.POST == nil {
+				NotImplemented(w)
+			} else {
+				c.POST(d, w, r)
+			}
+		case "DELETE":
+			if c.DELETE == nil {
+				NotImplemented(w)
+			} else {
+				c.DELETE(d, w, r)
+			}
+		}
+	})
+}
+
 // StartDaemon starts the lxd daemon with the provided configuration.
 func StartDaemon(listenAddr string) (*Daemon, error) {
 	d := &Daemon{}
@@ -118,16 +160,19 @@ func StartDaemon(listenAddr string) (*Daemon, error) {
 	read_saved_client_calist(d)
 
 	d.mux = http.NewServeMux()
-	d.mux.HandleFunc("/ping", d.servePing)
+
 	d.mux.HandleFunc("/trust", d.serveTrust)
 	d.mux.HandleFunc("/trust/add", d.serveTrustAdd)
-	d.mux.HandleFunc("/create", d.serveCreate)
 	d.mux.HandleFunc("/shell", d.serveShell)
 	d.mux.HandleFunc("/list", d.serveList)
 	d.mux.HandleFunc("/start", buildByNameServe("start", func(c *lxc.Container) error { return c.Start() }, d))
 	d.mux.HandleFunc("/stop", buildByNameServe("stop", func(c *lxc.Container) error { return c.Stop() }, d))
 	d.mux.HandleFunc("/delete", buildByNameServe("delete", func(c *lxc.Container) error { return c.Destroy() }, d))
 	d.mux.HandleFunc("/restart", buildByNameServe("restart", func(c *lxc.Container) error { return c.Reboot() }, d))
+
+	for _, c := range api10 {
+		d.createCmd("1.0", c)
+	}
 
 	d.id_map, err = NewIdmap()
 	if err != nil {
