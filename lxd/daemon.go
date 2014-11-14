@@ -11,7 +11,6 @@ import (
 	"os"
 
 	"github.com/lxc/lxd"
-	"gopkg.in/lxc/go-lxc.v2"
 	"gopkg.in/tomb.v2"
 )
 
@@ -26,6 +25,40 @@ type Daemon struct {
 	keyf          string
 	mux           *http.ServeMux
 	clientCerts   map[string]x509.Certificate
+}
+
+type Command struct {
+	name		string
+	GET		func(d *Daemon, w http.ResponseWriter, r *http.Request)
+	PUT		func(d *Daemon, w http.ResponseWriter, r *http.Request)
+	DELETE		func(d *Daemon, w http.ResponseWriter, r *http.Request)
+}
+
+func (d *Daemon) handleReq(version string, c *Command) {
+	uri := fmt.Sprintf("/%s/%s", version, c.name)
+	lxd.Debugf("in handleReq: %s", uri)
+	d.mux.HandleFunc(uri, func (w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case "GET":
+			if c.GET == nil {
+				NotImplemented(w)
+			} else {
+				c.GET(d, w, r)
+			}
+		case "PUT":
+			if c.PUT == nil {
+				NotImplemented(w)
+			} else {
+				c.PUT(d, w, r)
+			}
+		case "DELETE":
+			if c.DELETE == nil {
+				NotImplemented(w)
+			} else {
+				c.DELETE(d, w, r)
+			}
+		}
+	})
 }
 
 func read_my_cert() (string, string, error) {
@@ -118,16 +151,6 @@ func StartDaemon(listenAddr string) (*Daemon, error) {
 	read_saved_client_calist(d)
 
 	d.mux = http.NewServeMux()
-	d.mux.HandleFunc("/ping", d.servePing)
-	d.mux.HandleFunc("/trust", d.serveTrust)
-	d.mux.HandleFunc("/trust/add", d.serveTrustAdd)
-	d.mux.HandleFunc("/create", d.serveCreate)
-	d.mux.HandleFunc("/shell", d.serveShell)
-	d.mux.HandleFunc("/list", d.serveList)
-	d.mux.HandleFunc("/start", buildByNameServe("start", func(c *lxc.Container) error { return c.Start() }, d))
-	d.mux.HandleFunc("/stop", buildByNameServe("stop", func(c *lxc.Container) error { return c.Stop() }, d))
-	d.mux.HandleFunc("/delete", buildByNameServe("delete", func(c *lxc.Container) error { return c.Destroy() }, d))
-	d.mux.HandleFunc("/restart", buildByNameServe("restart", func(c *lxc.Container) error { return c.Reboot() }, d))
 
 	d.id_map, err = NewIdmap()
 	if err != nil {
@@ -138,6 +161,8 @@ func StartDaemon(listenAddr string) (*Daemon, error) {
 		d.id_map.Uidrange,
 		d.id_map.Gidmin,
 		d.id_map.Gidrange)
+
+	Make10(d)
 
 	unixAddr, err := net.ResolveUnixAddr("unix", lxd.VarPath("unix.socket"))
 	if err != nil {

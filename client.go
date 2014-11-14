@@ -2,6 +2,7 @@ package lxd
 
 import (
 	"crypto/tls"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net"
@@ -9,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"strconv"
 	"strings"
 )
 
@@ -21,6 +23,105 @@ type Client struct {
 	certf   string
 	keyf    string
 	cert    tls.Certificate
+}
+
+type ResponseType string
+
+const (
+	Sync = "sync"
+	Async = "async"
+	Error = "error"
+)
+
+type Jmap map[string]interface{}
+
+func (m Jmap) getString(key string) (string, error) {
+	if val, ok := m[key]; !ok {
+		return "", fmt.Errorf("Response was missing `%s`", key)
+	} else if val, ok := val.(string); !ok {
+		return "", fmt.Errorf("`%s` was not a string", key)
+	} else {
+		return val, nil
+	}
+}
+
+type Response struct {
+	Type		ResponseType
+
+	/* Valid only for Sync responses */
+	Result		bool
+
+	/* Valid only for Async responses */
+	Operation	string
+
+	/* Valid only for Error responses */
+	Code		int
+
+	/* Valid for Sync and Error responses */
+	Metadata	Jmap
+}
+
+func ParseResponse(r *http.Response) (*Response, error) {
+	defer r.Body.Close()
+	ret := Response{}
+	raw := Jmap{}
+
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+
+	if key, ok := raw["type"]; !ok {
+		return nil, fmt.Errorf("Response was missing `type`")
+	} else if key == Sync {
+
+		if result, err := raw.getString("result"); err != nil {
+			return nil, err
+		} else if result == "success" {
+			ret.Result = true
+		} else if result == "failure" {
+			ret.Result = false
+		} else {
+			return nil, fmt.Errorf("Invalid result %s", result)
+		}
+
+		ret.Metadata = raw["metadata"].(map[string]interface{})
+
+	} else if key == Async {
+
+		if operation, err := raw.getString("operation"); err != nil {
+			return nil, err
+		} else {
+			ret.Operation = operation
+		}
+
+	} else if key == Error {
+
+		if code, err := raw.getString("code"); err != nil {
+			return nil, err
+		} else if i, err := strconv.Atoi(code); err != nil {
+			return nil, err
+		} else {
+			ret.Code = i
+			if ret.Code != r.StatusCode {
+				return nil, fmt.Errorf("response codes don't match! %d %d", ret.Code, r.StatusCode)
+			}
+		}
+
+		ret.Metadata = raw["metadata"].(map[string]interface{})
+
+	} else {
+		return nil, fmt.Errorf("Bad response type")
+	}
+
+	return &ret, nil
+}
+
+func ParseError(r *Response) error {
+	if r.Type == Error {
+		return fmt.Errorf("got error code %d", r.Code)
+	}
+
+	return nil
 }
 
 func read_my_cert() (string, string, error) {
@@ -122,28 +223,49 @@ func NewClient(config *Config, raw string) (*Client, string, error) {
 	return &c, container, nil
 }
 
+/* This will be deleted once everything is ported to the new Response framework */
 func (c *Client) getstr(base string, args map[string]string) (string, error) {
 	vs := url.Values{}
 	for k, v := range args {
 		vs.Set(k, v)
 	}
 
-	data, err := c.get(base + "?" + vs.Encode())
+	resp, err := c.get(base + "?" + vs.Encode())
 	if err != nil {
 		return "", err
 	}
-	return string(data), nil
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return string(body), nil
 }
 
-func (c *Client) get(elem ...string) ([]byte, error) {
+func (c *Client) getResponse(base string, args map[string]string) (*Response, error) {
+	vs := url.Values{}
+	for k, v := range args {
+		vs.Set(k, v)
+	}
+
+	uri := fmt.Sprintf("/%s/%s", ApiVersion, base)
+
+	resp, err := c.get(uri + "?" + vs.Encode())
+	if err != nil {
+		return nil, err
+	}
+	return ParseResponse(resp)
+}
+
+func (c *Client) get(elem ...string) (*http.Response, error) {
 	url := c.url(elem...)
 	Debugf("url is %s", url)
 	resp, err := c.http.Get(url)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-	return ioutil.ReadAll(resp.Body)
+	return resp, nil
 }
 
 func (c *Client) url(elem ...string) string {
@@ -166,14 +288,22 @@ var unixTransport = http.Transport{
 // Ping pings the daemon to see if it is up listening and working.
 func (c *Client) Ping() error {
 	Debugf("pinging the daemon")
-	data, err := c.getstr("/ping", nil)
+	resp, err := c.getResponse("ping", nil)
 	if err != nil {
 		return err
 	}
 
-	datav := strings.Split(string(data), " ")
-	if datav[0] != Version {
-		return fmt.Errorf("version mismatch: mine: %q, daemon: %q", Version, datav[0])
+	if err := ParseError(resp); err != nil {
+		return err
+	}
+
+	serverApiVersion, err := resp.Metadata.getString("api_compat")
+	if err != nil {
+		return err
+	}
+
+	if serverApiVersion != ApiVersion {
+		return fmt.Errorf("api version mismatch: mine: %q, daemon: %q", ApiVersion, serverApiVersion)
 	}
 	Debugf("pong received")
 	return nil

@@ -9,6 +9,8 @@ import (
 	"github.com/lxc/lxd"
 )
 
+
+
 func (d *Daemon) serveCreate(w http.ResponseWriter, r *http.Request) {
 	lxd.Debugf("responding to create")
 
