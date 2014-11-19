@@ -19,6 +19,11 @@ func containersPost(d *Daemon, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if d.id_map == nil {
+		BadRequest(w, fmt.Errorf("no idmap"))
+		return
+	}
+
 	raw := lxd.Jmap{}
 	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
 		BadRequest(w, err)
