@@ -29,6 +29,10 @@ type Config struct {
 	// to listen on. If empty, the daemon will listen only on the local
 	// unix socket address.
 	ListenAddr string `yaml:"listen-addr"`
+
+	/* The image to use if the user does 'lxc create foo'. Defaults to
+	 * images:ubuntu. */
+	DefaultImage string `yaml:"default-image"`
 }
 
 // RemoteConfig holds details for communication with a remote daemon.
@@ -44,26 +48,35 @@ func renderConfigPath(path string) string {
 	return os.ExpandEnv(path)
 }
 
+func setDefaults(c *Config) {
+	if c.DefaultImage == "" {
+		c.DefaultImage = "images:ubuntu"
+	}
+	if c.Remotes == nil {
+		c.Remotes = make(map[string]RemoteConfig)
+	}
+}
+
 // LoadConfig reads the configuration from the config path.
 func LoadConfig(configPath string) (*Config, error) {
+	config := Config{}
+	setDefaults(&config)
+
 	data, err := ioutil.ReadFile(renderConfigPath(configPath))
 	if os.IsNotExist(err) {
 		// A missing file is equivalent to the default configuration.
-		return &Config{}, nil
+		return &config, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("cannot read config file: %v", err)
 	}
 
-	var c Config
-	err = yaml.Unmarshal(data, &c)
+	err = yaml.Unmarshal(data, &config)
 	if err != nil {
 		return nil, fmt.Errorf("cannot parse configuration: %v", err)
 	}
-	if c.Remotes == nil {
-		c.Remotes = make(map[string]RemoteConfig)
-	}
-	return &c, nil
+
+	return &config, nil
 }
 
 // SaveConfig writes the provided configuration to the config path.

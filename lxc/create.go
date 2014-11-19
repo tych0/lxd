@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/lxc/lxd"
 )
 
@@ -20,23 +22,32 @@ func (c *createCmd) usage() string {
 func (c *createCmd) flags() {}
 
 func (c *createCmd) run(config *lxd.Config, args []string) error {
-	if len(args) > 2 {
-		return errArgs
-	}
-
-	if len(args) < 1 {
-		return errArgs
-	}
-
-	if args[0] != "images:ubuntu" {
-		return fmt.Errorf("Only the default ubuntu image is supported. Try `lxc create images:ubuntu foo`.")
-	}
-
 	var resourceRef string
-	if len(args) == 2 {
-		resourceRef = args[1]
-	} else {
+	var imageType string
+	switch len(args) {
+	case 0:
+		imageType = config.DefaultImage
 		resourceRef = ""
+	case 1:
+		if strings.HasPrefix(args[0], "images:") {
+			imageType = args[0]
+			resourceRef = ""
+		} else {
+			imageType = config.DefaultImage
+			resourceRef = args[0]
+		}
+	case 2:
+		imageType = args[0]
+		resourceRef = args[1]
+	default:
+		return errArgs
+	}
+
+	fmt.Println(fmt.Sprintf("default image %s, my image %s", config.DefaultImage, imageType))
+
+	// TODO: implement the syntax for supporting other image types/remotes
+	if imageType != "images:ubuntu" {
+		return fmt.Errorf("images other than images:ubuntu aren't supported right now")
 	}
 
 	d, name, err := lxd.NewClient(config, resourceRef)
@@ -44,7 +55,6 @@ func (c *createCmd) run(config *lxd.Config, args []string) error {
 		return err
 	}
 
-	// TODO: implement the syntax for supporting other image types/remotes
 	l, err := d.Create(name)
 	if err == nil {
 		fmt.Println(l)

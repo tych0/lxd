@@ -27,10 +27,9 @@ func (c *configCmd) run(config *lxd.Config, args []string) error {
 	}
 
 	switch args[0] {
-
 	case "set":
-		action := args[1]
-		if action == "password" {
+		switch args[1] {
+		case "password":
 			if len(args) != 3 {
 				return errArgs
 			}
@@ -43,10 +42,16 @@ func (c *configCmd) run(config *lxd.Config, args []string) error {
 
 			_, err = c.SetRemotePwd(password)
 			return err
+		case "default-image":
+			if len(args) != 3 {
+				return errArgs
+			}
+
+			config.DefaultImage = args[2]
+			return lxd.SaveConfig(*configPath, config)
 		}
 
-		return fmt.Errorf("Only 'password' can be set currently")
+		return fmt.Errorf("Unknown config item %s", args[1])
 	}
-	return fmt.Errorf("Only admin password setting can be done currently")
-
+	return fmt.Errorf("Unknown action %s", args[0])
 }
