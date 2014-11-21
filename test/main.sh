@@ -13,6 +13,7 @@ cleanup() {
 }
 
 set -e
+set -x
 
 trap cleanup EXIT HUP INT TERM
 
