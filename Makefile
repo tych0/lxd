@@ -1,7 +1,6 @@
 .PHONY: default
 default:
-	make -C lxc
-	make -C lxd
+	go build ./...
 
 .PHONY: check
 check: default
