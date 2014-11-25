@@ -23,7 +23,7 @@ import (
  * containers
  */
 type Idmap struct {
-	Uidmin, Uidrange uint
+		Uidmin, Uidrange uint
 	Gidmin, Gidrange uint
 }
 
