@@ -31,6 +31,10 @@ func (c *actionCmd) run(config *lxd.Config, args []string) error {
 	}
 
 	// TODO: implement --force and --timeout where necessary
-	_, err = d.Action(name, c.action, -1, false)
-	return err
+	resp, err := d.Action(name, c.action, -1, false)
+	if err != nil {
+		return err
+	}
+
+	return d.WaitForSuccess(resp.Operation)
 }
