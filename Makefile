@@ -7,6 +7,7 @@ default:
 check: default
 	go fmt ./...
 	go vet ./...
+	golint
 	git diff --exit-code
 	cd test && ./main.sh
 
