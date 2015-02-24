@@ -104,6 +104,7 @@ func ReaderToChannel(r io.Reader) <-chan []byte {
 			}
 
 			if err != nil {
+				Debugf("error in reader to channel %s, buf %s", err, string(buf))
 				close(ch)
 				break
 			}
@@ -113,18 +114,12 @@ func ReaderToChannel(r io.Reader) <-chan []byte {
 	return ch
 }
 
-func WebsocketMirror(conn *websocket.Conn, w io.Writer, r io.ReadCloser) {
-	done := make(chan bool, 1)
+func WebsocketMirror(conn *websocket.Conn, w io.Writer, r io.ReadCloser) (chan bool, chan bool) {
+	readDone := make(chan bool, 1)
+	writeDone := make(chan bool, 1)
 
 	go func() {
 		for {
-			select {
-			case <-done:
-				return
-			default:
-				break
-			}
-
 			mt, r, err := conn.NextReader()
 			if mt == websocket.CloseMessage {
 				break
@@ -134,45 +129,71 @@ func WebsocketMirror(conn *websocket.Conn, w io.Writer, r io.ReadCloser) {
 				Debugf("got error getting next reader %s", err)
 				break
 			}
+			buf, err := ioutil.ReadAll(r)
+			if err != nil {
+				Debugf("got error in ReadAll %s", err)
+				break
+			}
+
+			// fmt.Println("writing " + string(buf))
+
+			_, err = w.Write(buf)
+			if err != nil {
+				Debugf("got error writing %s: buf %s", err)
+				break
+			}
+			/*
 			_, err = io.Copy(w, r)
 			if err != nil {
 				Debugf("got error writing to writer %s", err)
 				break
 			}
+			*/
 		}
 
-		done <- true
+		readDone <- true
+		close(readDone)
 		r.Close()
-		conn.Close()
 	}()
 
-	in := ReaderToChannel(r)
+	go func() {
+		in := ReaderToChannel(r)
+		for {
+			select {
+			case buf, ok := <-in:
+				// fmt.Println("buf %s ok %s", string(buf), ok)
+				if !ok {
+					w, err := conn.NextWriter(websocket.BinaryMessage)
+					if err != nil {
+						Debugf("error getting EOF writer %s", err)
+						return
+					}
 
-	for {
-		select {
-		case <-done:
-			return
-		case buf, ok := <-in:
-			if !ok {
-				done <- true
-				conn.WriteMessage(websocket.CloseMessage, []byte{})
-				conn.Close()
-				return
-			}
-			w, err := conn.NextWriter(websocket.BinaryMessage)
-			if err != nil {
-				Debugf("got error getting next writer %s", err)
-				break
-			}
+					/*
+					 * The input ended, so write EOF so the other side knows
+					 */
+					w.Write([]byte{04})
+					writeDone <- true
+					close(writeDone)
+					return
+				}
+				w, err := conn.NextWriter(websocket.BinaryMessage)
+				if err != nil {
+					Debugf("got error getting next writer %s", err)
+					break
+				}
 
-			_, err = w.Write(buf)
-			w.Close()
-			if err != nil {
-				Debugf("got err writing %s", err)
-				break
+				_, err = w.Write(buf)
+				w.Close()
+				if err != nil {
+					Debugf("got err writing %s", err)
+					break
+				}
 			}
 		}
-	}
+	}()
+
+	return readDone, writeDone
 }
 
 // Returns a random base64 encoded string from crypto/rand.

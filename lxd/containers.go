@@ -831,7 +831,9 @@ func (s *execWs) Do(conn *websocket.Conn) {
 	 * the copy-goroutines to exit.  If the connection closes, we
 	 * also want to exit
 	 */
-	shared.WebsocketMirror(conn, pty, pty)
+	_, writeDone := shared.WebsocketMirror(conn, pty, pty)
+	<-writeDone
+	conn.Close()
 }
 
 type commandPostContent struct {

@@ -649,7 +649,10 @@ func (c *Client) Exec(name string, cmd []string, stdin io.ReadCloser, stdout io.
 		return -1, err
 	}
 
-	shared.WebsocketMirror(conn, stdout, stdin)
+	recvDone, _ := shared.WebsocketMirror(conn, stdout, stdin)
+	<-recvDone
+	conn.Close()
+
 	op, err := c.WaitFor(resp.Operation)
 	if err != nil {
 		return -1, err
