@@ -1,5 +1,6 @@
 .PHONY: default
 default:
+	protoc --go_out=. ./lxd/migration/migrate.proto
 	go install -v ./...
 
 .PHONY: check

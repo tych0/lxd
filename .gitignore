@@ -1,7 +1,3 @@
 *.swp
-
-lxd/lxd
-lxc/lxc
-fuidshift/fuidshift
-
 lxd-*.tar.gz
+*.pb.go
