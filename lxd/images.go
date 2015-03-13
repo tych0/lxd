@@ -562,16 +562,7 @@ func imageExport(d *Daemon, r *http.Request) Response {
 			return InternalError(err)
 		}
 
-		// test compression, for content type header
-		// if unknown compression we send standard header
-		_, err := detectCompression(filename)
-
-		ctype := "application/x-gtar"
-		if err != nil {
-			ctype = "application/octet-stream"
-		}
-
-		return FileResponse(filename, size, ctype)
+		return FileResponse(r, filename, nil)
 
 	}
 
