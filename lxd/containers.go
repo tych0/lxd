@@ -100,13 +100,16 @@ type containerImageSource struct {
 }
 
 type containerPostReq struct {
-	Name     string               `json:"name"`
-	Source   containerImageSource `json:"source"`
-	Config   map[string]string    `json:"config"`
-	Profiles []string             `json:"profiles"`
+	Name        string               `json:"name"`
+	Source      containerImageSource `json:"source"`
+	Config      map[string]string    `json:"config"`
+	Profiles    []string             `json:"profiles"`
+	Ephemeral   bool                 `json:"ephemeral"`
 }
 
 func createFromImage(d *Daemon, req *containerPostReq) Response {
+	shared.Debugf("ephemeral: %s\n", req.Ephemeral)
+
 	var uuid string
 	var err error
 	if req.Source.Alias != "" {
@@ -156,7 +159,7 @@ func createFromImage(d *Daemon, req *containerPostReq) Response {
 	}
 
 	name := req.Name
-	_, err = dbCreateContainer(d, name, cTypeRegular, req.Config, req.Profiles)
+	_, err = dbCreateContainer(d, name, cTypeRegular, req.Config, req.Profiles, req.Ephemeral)
 	if err != nil {
 		removeContainerPath(d, name)
 		return SmartError(err)
@@ -175,7 +178,7 @@ func createFromImage(d *Daemon, req *containerPostReq) Response {
 
 func createFromNone(d *Daemon, req *containerPostReq) Response {
 
-	_, err := dbCreateContainer(d, req.Name, cTypeRegular, req.Config, req.Profiles)
+	_, err := dbCreateContainer(d, req.Name, cTypeRegular, req.Config, req.Profiles, req.Ephemeral)
 	if err != nil {
 		return SmartError(err)
 	}
@@ -195,7 +198,7 @@ func createFromMigration(d *Daemon, req *containerPostReq) Response {
 		return NotImplemented
 	}
 
-	_, err := dbCreateContainer(d, req.Name, cTypeRegular, req.Config, req.Profiles)
+	_, err := dbCreateContainer(d, req.Name, cTypeRegular, req.Config, req.Profiles, req.Ephemeral)
 	if err != nil {
 		return SmartError(err)
 	}
@@ -259,7 +262,7 @@ func createFromCopy(d *Daemon, req *containerPostReq) Response {
 		return SmartError(err)
 	}
 
-	_, err = dbCreateContainer(d, req.Name, cTypeRegular, req.Config, req.Profiles)
+	_, err = dbCreateContainer(d, req.Name, cTypeRegular, req.Config, req.Profiles, req.Ephemeral)
 	if err != nil {
 		return SmartError(err)
 	}
@@ -399,7 +402,7 @@ func dbGetContainerId(db *sql.DB, name string) (int, error) {
 	return id, err
 }
 
-func dbCreateContainer(d *Daemon, name string, ctype containerType, config map[string]string, profiles []string) (int, error) {
+func dbCreateContainer(d *Daemon, name string, ctype containerType, config map[string]string, profiles []string, ephem bool) (int, error) {
 	id, err := dbGetContainerId(d.db, name)
 	if err == nil {
 		return 0, DbErrAlreadyDefined
@@ -413,8 +416,8 @@ func dbCreateContainer(d *Daemon, name string, ctype containerType, config map[s
 	if err != nil {
 		return 0, err
 	}
-	str := fmt.Sprintf("INSERT INTO containers (name, architecture, type) VALUES (?, 1, %d)",
-		ctype)
+	str := fmt.Sprintf("INSERT INTO containers (name, architecture, type, ephem) VALUES (?, 1, %d, %d)",
+		ctype, ephem)
 	stmt, err := tx.Prepare(str)
 	if err != nil {
 		tx.Rollback()
@@ -720,7 +723,7 @@ func containerPost(d *Daemon, r *http.Request) Response {
 			return BadRequest(fmt.Errorf("renaming of running container not allowed"))
 		}
 
-		_, err := dbCreateContainer(d, body.Name, cTypeRegular, c.config, c.profiles)
+		_, err := dbCreateContainer(d, body.Name, cTypeRegular, c.config, c.profiles, false)
 		if err != nil {
 			return SmartError(err)
 		}
@@ -781,12 +784,13 @@ type containerStatePutReq struct {
 }
 
 type lxdContainer struct {
-	c        *lxc.Container
-	id       int
-	name     string
-	config   map[string]string
-	profiles []string
-	devices  shared.Devices
+	c           *lxc.Container
+	id          int
+	name        string
+	config      map[string]string
+	profiles    []string
+	devices     shared.Devices
+	ephemeral   bool
 }
 
 func (c *lxdContainer) RenderState() *shared.ContainerState {
@@ -801,6 +805,10 @@ func (c *lxdContainer) RenderState() *shared.ContainerState {
 }
 
 func (c *lxdContainer) Start() error {
+	if c.ephemeral == true {
+		shared.Debugf("ephemeral container is starting\n")
+	}
+
 	return c.c.Start()
 }
 
@@ -1035,10 +1043,11 @@ func newLxdContainer(name string, daemon *Daemon) (*lxdContainer, error) {
 	d := &lxdContainer{}
 
 	arch := 0
+	d.ephemeral = false
 	d.id = -1
-	q := "SELECT id, architecture FROM containers WHERE name=?"
+	q := "SELECT id, architecture, ephemeral FROM containers WHERE name=?"
 	arg1 := []interface{}{name}
-	arg2 := []interface{}{&d.id, &arch}
+	arg2 := []interface{}{&d.id, &arch, &d.ephemeral}
 	err := shared.DbQueryRowScan(daemon.db, q, arg1, arg2)
 	if err != nil {
 		return nil, err
@@ -1466,7 +1475,7 @@ func containerSnapshotsPost(d *Daemon, r *http.Request) Response {
 
 		/* Create the db info */
 		//cId, err := dbCreateContainer(d, snapshotName, cTypeSnapshot)
-		_, err := dbCreateContainer(d, fullName, cTypeSnapshot, c.config, c.profiles)
+		_, err := dbCreateContainer(d, fullName, cTypeSnapshot, c.config, c.profiles, false)
 
 		/* Create the directory and rootfs, set perms */
 		/* Copy the rootfs */
