@@ -135,6 +135,9 @@ func (o *Operation) SetStatus(status OperationStatus) {
 	o.UpdatedAt = time.Now()
 	if status.IsFinal() {
 		o.MayCancel = false
+		o.Cancel = nil
+		o.Run = nil
+		o.Websocket = nil
 	}
 }
 

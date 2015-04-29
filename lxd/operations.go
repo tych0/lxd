@@ -71,6 +71,9 @@ func StartOperation(id string) error {
 
 			lock.Lock()
 			op.SetResult(result)
+			op.Run = nil
+			op.Cancel = nil
+			op.Websocket = nil
 			lock.Unlock()
 		}(op)
 	}
