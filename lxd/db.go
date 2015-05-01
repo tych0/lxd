@@ -52,7 +52,7 @@ CREATE TABLE containers_config (
     container_id INTEGER NOT NULL,
     key VARCHAR(255) NOT NULL,
     value TEXT,
-    FOREIGN KEY (container_id) REFERENCES containers (id),
+    FOREIGN KEY (container_id) REFERENCES containers (id) ON DELETE CASCADE,
     UNIQUE (container_id, key)
 );
 CREATE TABLE containers_devices (
@@ -60,7 +60,7 @@ CREATE TABLE containers_devices (
     container_id INTEGER NOT NULL,
     name VARCHAR(255) NOT NULL,
     type INTEGER NOT NULL default 0,
-    FOREIGN KEY (container_id) REFERENCES containers (id),
+    FOREIGN KEY (container_id) REFERENCES containers (id) ON DELETE CASCADE,
     UNIQUE (container_id, name)
 );
 CREATE TABLE containers_devices_config (
@@ -68,7 +68,7 @@ CREATE TABLE containers_devices_config (
     container_device_id INTEGER NOT NULL,
     key VARCHAR(255) NOT NULL,
     value TEXT,
-    FOREIGN KEY (container_device_id) REFERENCES containers_devices (id),
+    FOREIGN KEY (container_device_id) REFERENCES containers_devices (id) ON DELETE CASCADE,
     UNIQUE (container_device_id, key)
 );
 CREATE TABLE containers_profiles (
@@ -77,8 +77,8 @@ CREATE TABLE containers_profiles (
     profile_id INTEGER NOT NULL,
     apply_order INTEGER NOT NULL default 0,
     UNIQUE (container_id, profile_id),
-    FOREIGN KEY (container_id) REFERENCES containers(id),
-    FOREIGN KEY (profile_id) REFERENCES profiles(id)
+    FOREIGN KEY (container_id) REFERENCES containers(id) ON DELETE CASCADE,
+    FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
 );
 CREATE TABLE images (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -97,7 +97,7 @@ CREATE TABLE images_aliases (
     name VARCHAR(255) NOT NULL,
     image_id INTEGER NOT NULL,
     description VARCHAR(255),
-    FOREIGN KEY (image_id) REFERENCES images (id),
+    FOREIGN KEY (image_id) REFERENCES images (id) ON DELETE CASCADE,
     UNIQUE (name)
 );
 CREATE TABLE images_properties (
@@ -106,7 +106,7 @@ CREATE TABLE images_properties (
     type INTEGER NOT NULL,
     key VARCHAR(255) NOT NULL,
     value TEXT,
-    FOREIGN KEY (image_id) REFERENCES images (id)
+    FOREIGN KEY (image_id) REFERENCES images (id) ON DELETE CASCADE
 );
 CREATE TABLE profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -119,7 +119,7 @@ CREATE TABLE profiles_config (
     key VARCHAR(255) NOT NULL,
     value VARCHAR(255),
     UNIQUE (profile_id, key),
-    FOREIGN KEY (profile_id) REFERENCES profiles(id)
+    FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
 );
 CREATE TABLE profiles_devices (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -127,7 +127,7 @@ CREATE TABLE profiles_devices (
     name VARCHAR(255) NOT NULL,
     type INTEGER NOT NULL default 0,
     UNIQUE (profile_id, name),
-    FOREIGN KEY (profile_id) REFERENCES profiles (id)
+    FOREIGN KEY (profile_id) REFERENCES profiles (id) ON DELETE CASCADE
 );
 CREATE TABLE profiles_devices_config (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -135,7 +135,7 @@ CREATE TABLE profiles_devices_config (
     key VARCHAR(255) NOT NULL,
     value TEXT,
     UNIQUE (profile_device_id, key),
-    FOREIGN KEY (profile_device_id) REFERENCES profiles_devices (id)
+    FOREIGN KEY (profile_device_id) REFERENCES profiles_devices (id) ON DELETE CASCADE
 );
 CREATE TABLE schema (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -231,7 +231,7 @@ CREATE TABLE containers_devices (
     container_id INTEGER NOT NULL,
     name VARCHAR(255) NOT NULL,
     type INTEGER NOT NULL default 0,
-    FOREIGN KEY (container_id) REFERENCES containers (id),
+    FOREIGN KEY (container_id) REFERENCES containers (id) ON DELETE CASCADE,
     UNIQUE (container_id, name)
 );
 CREATE TABLE containers_devices_config (
@@ -239,7 +239,7 @@ CREATE TABLE containers_devices_config (
     container_device_id INTEGER NOT NULL,
     key VARCHAR(255) NOT NULL,
     value TEXT,
-    FOREIGN KEY (container_device_id) REFERENCES containers_devices (id),
+    FOREIGN KEY (container_device_id) REFERENCES containers_devices (id) ON DELETE CASCADE,
     UNIQUE (container_device_id, key)
 );
 CREATE TABLE containers_profiles (
@@ -248,8 +248,8 @@ CREATE TABLE containers_profiles (
     profile_id INTEGER NOT NULL,
     apply_order INTEGER NOT NULL default 0,
     UNIQUE (container_id, profile_id),
-    FOREIGN KEY (container_id) REFERENCES containers(id),
-    FOREIGN KEY (profile_id) REFERENCES profiles(id)
+    FOREIGN KEY (container_id) REFERENCES containers(id) ON DELETE CASCADE,
+    FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
 );
 CREATE TABLE profiles (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -262,7 +262,7 @@ CREATE TABLE profiles_config (
     key VARCHAR(255) NOT NULL,
     value VARCHAR(255),
     UNIQUE (profile_id, key),
-    FOREIGN KEY (profile_id) REFERENCES profiles(id)
+    FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
 );
 CREATE TABLE profiles_devices (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -270,7 +270,7 @@ CREATE TABLE profiles_devices (
     name VARCHAR(255) NOT NULL,
     type INTEGER NOT NULL default 0,
     UNIQUE (profile_id, name),
-    FOREIGN KEY (profile_id) REFERENCES profiles (id)
+    FOREIGN KEY (profile_id) REFERENCES profiles (id) ON DELETE CASCADE
 );
 CREATE TABLE profiles_devices_config (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -278,7 +278,7 @@ CREATE TABLE profiles_devices_config (
     key VARCHAR(255) NOT NULL,
     value TEXT,
     UNIQUE (profile_device_id, key),
-    FOREIGN KEY (profile_device_id) REFERENCES profiles_devices (id)
+    FOREIGN KEY (profile_device_id) REFERENCES profiles_devices (id) ON DELETE CASCADE
 );
 INSERT INTO schema (version, updated_at) values (?, strftime("%s"));`
 	_, err := db.Exec(stmt, 3)
@@ -294,7 +294,7 @@ CREATE TABLE images_aliases (
     name VARCHAR(255) NOT NULL,
     image_id INTEGER NOT NULL,
     description VARCHAR(255),
-    FOREIGN KEY (image_id) REFERENCES images (id),
+    FOREIGN KEY (image_id) REFERENCES images (id) ON DELETE CASCADE,
     UNIQUE (name)
 );
 INSERT INTO schema (version, updated_at) values (?, strftime("%s"));`
