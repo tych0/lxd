@@ -1095,6 +1095,13 @@ func (c *containerLXD) DetachMount(m shared.Device) error {
 	return exec.Command(os.Args[0], "forkumount", pidstr, m["path"]).Run()
 }
 
+/*
+ * Escape mntents for getmntent(), i.e. s/ /\\040.
+ */
+func spaceEscape(path string) string {
+	return strings.Replace(path, " ", "\\040", -1)
+}
+
 func (c *containerLXD) AttachMount(m shared.Device) error {
 	dest := m["path"]
 	source := m["source"]
@@ -1138,7 +1145,7 @@ func (c *containerLXD) AttachMount(m shared.Device) error {
 		opts = opts + ",optional"
 	}
 
-	entry := fmt.Sprintf("%s %s %s %s 0 0", source, dest, fstype, opts)
+	entry := fmt.Sprintf("%s %s %s %s 0 0", spaceEscape(source), spaceEscape(dest), fstype, opts)
 	if err := c.c.SetConfigItem("lxc.mount.entry", entry); err != nil {
 		return err
 	}
