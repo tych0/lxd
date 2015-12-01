@@ -605,8 +605,19 @@ func MigrateContainer(args []string) error {
 		return err
 	}
 
-	return c.Restore(lxc.RestoreOptions{
-		Directory: imagesDir,
-		Verbose:   true,
-	})
+	/* if this is a new style dump, the dump/ subdir */
+	dumpDir := fmt.Sprintf("%s/dump", imagesDir)
+	if shared.IsDir(dumpDir) {
+		opts := lxc.MigrateOptions{
+			Directory: dumpDir,
+			Verbose: true,
+		}
+
+		return c.Migrate(lxc.MIGRATE_RESTORE, opts)
+	} else {
+		return c.Restore(lxc.RestoreOptions{
+			Directory: imagesDir,
+			Verbose:   true,
+		})
+	}
 }

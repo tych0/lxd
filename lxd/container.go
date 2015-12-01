@@ -191,6 +191,7 @@ type container interface {
 	ExportToTar(w io.Writer) error
 
 	Checkpoint(opts lxc.CheckpointOptions) error
+	SmartCheckpoint(directory string) error
 	StartFromMigration(imagesDir string) error
 
 	// TODO: Remove every use of this and remove it.
@@ -2355,6 +2356,44 @@ func (c *containerLXD) mountShared() error {
 
 func (c *containerLXD) Checkpoint(opts lxc.CheckpointOptions) error {
 	return c.c.Checkpoint(opts)
+}
+
+func (c *containerLXD) SmartCheckpoint(directory string) error {
+	major, _ := lxc.VersionNumber()
+
+	/* TODO: fix this up when version 2 is released */
+	if major < 1 {
+		shared.Debugf("LXC not recent enough, falling back to old-style checkpoint")
+		opts := lxc.CheckpointOptions{
+			Directory: directory,
+			Stop: true,
+			Verbose: true,
+		}
+
+		return c.Checkpoint(opts)
+	}
+
+	opts := lxc.MigrateOptions{
+		Directory: fmt.Sprintf("%s/predump", directory),
+		Verbose: true,
+	}
+
+	/* For now, just do a single pre-dump pass and then do a dump. This
+	 * enables us to do things like check for inotify paths outside of the
+	 * migration hot path.
+	 */
+	if err := c.c.Migrate(lxc.MIGRATE_PRE_DUMP, opts); err != nil {
+		return err
+	}
+
+	opts.PredumpDir = "../predump" /* must be relative to Directory below */
+	opts.Directory = fmt.Sprintf("%s/dump", directory)
+
+	if err := c.c.Migrate(lxc.MIGRATE_DUMP, opts); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c *containerLXD) StartFromMigration(imagesDir string) error {
