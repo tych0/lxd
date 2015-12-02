@@ -190,8 +190,7 @@ type container interface {
 	TemplateApply(trigger string) error
 	ExportToTar(w io.Writer) error
 
-	Checkpoint(opts lxc.CheckpointOptions) error
-	SmartCheckpoint(directory string) error
+	Checkpoint(directory string) error
 	StartFromMigration(imagesDir string) error
 
 	// TODO: Remove every use of this and remove it.
@@ -389,8 +388,7 @@ func containerLXDCreateAsSnapshot(d *Daemon, name string,
 			c.Delete()
 			return nil, fmt.Errorf("Container not running")
 		}
-		opts := lxc.CheckpointOptions{Directory: stateDir, Stop: true, Verbose: true}
-		err = sourceContainer.Checkpoint(opts)
+		err = sourceContainer.Checkpoint(stateDir)
 		err2 := CollectCRIULogFile(sourceContainer, stateDir, "snapshot", "dump")
 		if err2 != nil {
 			shared.Log.Warn("failed to collect criu log file", log.Ctx{"error": err2})
@@ -2354,11 +2352,7 @@ func (c *containerLXD) mountShared() error {
 	return setConfigItem(c, "lxc.mount.entry", entry)
 }
 
-func (c *containerLXD) Checkpoint(opts lxc.CheckpointOptions) error {
-	return c.c.Checkpoint(opts)
-}
-
-func (c *containerLXD) SmartCheckpoint(directory string) error {
+func (c *containerLXD) Checkpoint(directory string) error {
 	major, _ := lxc.VersionNumber()
 
 	/* TODO: fix this up when version 2 is released */
@@ -2370,7 +2364,7 @@ func (c *containerLXD) SmartCheckpoint(directory string) error {
 			Verbose: true,
 		}
 
-		return c.Checkpoint(opts)
+		return c.c.Checkpoint(opts)
 	}
 
 	opts := lxc.MigrateOptions{
