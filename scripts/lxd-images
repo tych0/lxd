@@ -759,7 +759,4 @@ to import and launch images"""))
     if args.quiet:
         quiet = True
 
-    try:
-        args.func(parser, args)
-    except Exception as e:
-        parser.error(e)
+    args.func(parser, args)
