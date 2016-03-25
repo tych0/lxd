@@ -1395,7 +1395,7 @@ func (c *Client) Monitor(types []string, handler func(interface{})) error {
 // output is sent to the output buffers.
 func (c *Client) Exec(name string, cmd []string, env map[string]string,
 	stdin io.ReadCloser, stdout io.WriteCloser,
-	stderr io.WriteCloser, controlHandler func(*Client, *websocket.Conn)) (int, error) {
+	stderr io.WriteCloser, controlHandler func(*Client, *websocket.Conn, chan<- bool)) (int, error) {
 
 	if c.Remote.Public {
 		return -1, fmt.Errorf("This function isn't supported by public remotes.")
@@ -1434,7 +1434,10 @@ func (c *Client) Exec(name string, cmd []string, env map[string]string,
 			}
 			defer control.Close()
 
-			go controlHandler(c, control)
+			ready := make(chan bool, 1)
+
+			go controlHandler(c, control, ready)
+			<-ready
 		}
 
 		conn, err := c.websocket(resp.Operation, fds["0"].(string))

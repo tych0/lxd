@@ -18,7 +18,7 @@ func (c *execCmd) getStdout() io.WriteCloser {
 	return os.Stdout
 }
 
-func (c *execCmd) controlSocketHandler(d *lxd.Client, control *websocket.Conn) {
+func (c *execCmd) controlSocketHandler(d *lxd.Client, control *websocket.Conn, ready chan<- bool) {
 	ch := make(chan os.Signal)
 	signal.Notify(ch, syscall.SIGWINCH)
 

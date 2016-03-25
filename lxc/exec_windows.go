@@ -28,7 +28,7 @@ func (c *execCmd) getStdout() io.WriteCloser {
 	return &WrappedWriteCloser{os.Stdout, colorable.NewColorableStdout()}
 }
 
-func (c *execCmd) controlSocketHandler(d *lxd.Client, control *websocket.Conn) {
+func (c *execCmd) controlSocketHandler(d *lxd.Client, control *websocket.Conn, ready chan<- bool) {
 	// TODO: figure out what the equivalent of signal.SIGWINCH is on
 	// windows and use that; for now if you resize your terminal it just
 	// won't work quite correctly.
