@@ -77,3 +77,12 @@ func Restore(fd int, state *State) error {
 
 	return nil
 }
+
+func Tcdrain(fd int) error {
+	ret := C.tcdrain(fd)
+	if ret != 0 {
+		return err.(syscall.Errno)
+	}
+
+	return nil
+}

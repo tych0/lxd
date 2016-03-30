@@ -223,6 +223,10 @@ func (s *execWs) Do(op *operation) error {
 	)
 
 	for _, tty := range ttys {
+		err := termios.Tcdrain(tty.Fd())
+		if err != nil {
+			shared.Log.Error("error tcdrain()ing", "err", err)
+		}
 		tty.Close()
 	}
 
