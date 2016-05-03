@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -11,6 +12,8 @@ import (
 	"github.com/gorilla/websocket"
 
 	"github.com/lxc/lxd/shared"
+
+        log "gopkg.in/inconshreveable/log15.v2"
 )
 
 func rsyncWebsocket(path string, cmd *exec.Cmd, conn *websocket.Conn) error {
@@ -51,14 +54,14 @@ func rsyncWebsocket(path string, cmd *exec.Cmd, conn *websocket.Conn) error {
 	return err
 }
 
-func rsyncSendSetup(path string) (*exec.Cmd, net.Conn, io.ReadCloser, error) {
+func rsyncSendSetup(path string) (*exec.Cmd, net.Conn, io.ReadCloser, io.ReadCloser, error) {
 	/*
 	 * It's sort of unfortunate, but there's no library call to get a
 	 * temporary name, so we get the file and close it and use its name.
 	 */
 	f, err := ioutil.TempFile("", "lxd_rsync_")
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	f.Close()
 	os.Remove(f.Name())
@@ -79,7 +82,7 @@ func rsyncSendSetup(path string) (*exec.Cmd, net.Conn, io.ReadCloser, error) {
 	 */
 	l, err := net.Listen("unix", f.Name())
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	/*
@@ -100,33 +103,39 @@ func rsyncSendSetup(path string) (*exec.Cmd, net.Conn, io.ReadCloser, error) {
 		"--devices",
 		"--numeric-ids",
 		"--partial",
+		"--progress",
 		path,
 		"localhost:/tmp/foo",
 		"-e",
 		rsyncCmd)
 
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return nil, nil, nil, nil, err
+	}
+
 	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	if err := cmd.Start(); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 
 	conn, err := l.Accept()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	l.Close()
 
-	return cmd, conn, stderr, nil
+	return cmd, conn, stdout, stderr, nil
 }
 
 // RsyncSend sets up the sending half of an rsync, to recursively send the
 // directory pointed to by path over the websocket.
 func RsyncSend(path string, conn *websocket.Conn) error {
-	cmd, dataSocket, stderr, err := rsyncSendSetup(path)
+	cmd, dataSocket, stdout, stderr, err := rsyncSendSetup(path)
 	if dataSocket != nil {
 		defer dataSocket.Close()
 	}
@@ -135,6 +144,24 @@ func RsyncSend(path string, conn *websocket.Conn) error {
 	}
 
 	readDone, writeDone := shared.WebsocketMirror(conn, dataSocket, dataSocket)
+
+	go func() {
+		r := bufio.NewReader(stdout)
+		for {
+			line, err := r.ReadString('\n')
+			if len(line) > 0 {
+				shared.Log.Debug("rsync output", log.Ctx{"line": line})
+			}
+
+			if err != nil {
+				if err != io.EOF {
+					shared.Log.Debug("rsync error", log.Ctx{"err": err})
+				}
+
+				break
+			}
+		}
+	}()
 
 	output, err := ioutil.ReadAll(stderr)
 	if err != nil {
