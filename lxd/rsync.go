@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sync"
 
 	"github.com/gorilla/websocket"
 
@@ -98,7 +99,7 @@ func rsyncSendSetup(path string) (*exec.Cmd, net.Conn, io.ReadCloser, io.ReadClo
 	 */
 	// rsyncCmd := fmt.Sprintf("sh -c \"socat -d -d - UNIX-CONNECT:%s\"", f.Name())
 	// rsyncCmd := fmt.Sprintf("sh -c \"nc -U %s\"", f.Name())
-	rsyncCmd := fmt.Sprintf("%s netcat %s", execPath, f.Name())
+	rsyncCmd := fmt.Sprintf("sh -c \"%s netcat %s\"", execPath, f.Name())
 	cmd := exec.Command(
 		"strace",
 		"-o",
@@ -227,6 +228,9 @@ func Netcat(args []string) error {
 		return err
 	}
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
 	go func() {
 		io.Copy(os.Stdout, conn)
 		f, _ := os.Create("/tmp/done_stdout")
@@ -234,6 +238,7 @@ func Netcat(args []string) error {
 		conn.Close()
 		f, _ = os.Create("/tmp/done_close")
 		f.Close()
+		wg.Done()
 	}()
 
 	go func() {
@@ -244,6 +249,7 @@ func Netcat(args []string) error {
 
 	f, _ := os.Create("/tmp/done_spawning_goroutines")
 	f.Close()
+	wg.Wait()
 
 	return nil
 }
