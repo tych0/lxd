@@ -419,12 +419,12 @@ func (c *containerLXC) initLXC() error {
 	}
 
 	// Setup the hooks
-	err = lxcSetConfigItem(cc, "lxc.hook.pre-start", fmt.Sprintf("%s callhook %s %d start", c.daemon.execPath, shared.VarPath(""), c.id))
+	err = lxcSetConfigItem(cc, "lxc.hook.pre-start", fmt.Sprintf("%s callhook %s %d start", execPath, shared.VarPath(""), c.id))
 	if err != nil {
 		return err
 	}
 
-	err = lxcSetConfigItem(cc, "lxc.hook.post-stop", fmt.Sprintf("%s callhook %s %d stop", c.daemon.execPath, shared.VarPath(""), c.id))
+	err = lxcSetConfigItem(cc, "lxc.hook.post-stop", fmt.Sprintf("%s callhook %s %d stop", execPath, shared.VarPath(""), c.id))
 	if err != nil {
 		return err
 	}
@@ -1131,7 +1131,7 @@ func (c *containerLXC) Start(stateful bool) error {
 		}
 
 		out, err := exec.Command(
-			c.daemon.execPath,
+			execPath,
 			"forkmigrate",
 			c.name,
 			c.daemon.lxcpath,
@@ -1167,7 +1167,7 @@ func (c *containerLXC) Start(stateful bool) error {
 
 	// Start the LXC container
 	out, err := exec.Command(
-		c.daemon.execPath,
+		execPath,
 		"forkstart",
 		c.name,
 		c.daemon.lxcpath,
@@ -1200,7 +1200,7 @@ func (c *containerLXC) StartFromMigration(imagesDir string) error {
 
 	// Start the LXC container
 	out, err := exec.Command(
-		c.daemon.execPath,
+		execPath,
 		"forkmigrate",
 		c.name,
 		c.daemon.lxcpath,
@@ -1724,7 +1724,7 @@ func (c *containerLXC) Restore(sourceContainer container) error {
 		}
 
 		out, err := exec.Command(
-			c.daemon.execPath,
+			execPath,
 			"forkmigrate",
 			c.name,
 			c.daemon.lxcpath,
@@ -2831,7 +2831,7 @@ func (c *containerLXC) FilePull(srcpath string, dstpath string) (int, int, os.Fi
 
 	// Get the file from the container
 	out, err := exec.Command(
-		c.daemon.execPath,
+		execPath,
 		"forkgetfile",
 		c.RootfsPath(),
 		fmt.Sprintf("%d", c.InitPID()),
@@ -2938,7 +2938,7 @@ func (c *containerLXC) FilePush(srcpath string, dstpath string, uid int, gid int
 
 	// Push the file to the container
 	out, err := exec.Command(
-		c.daemon.execPath,
+		execPath,
 		"forkputfile",
 		c.RootfsPath(),
 		fmt.Sprintf("%d", c.InitPID()),
@@ -2990,7 +2990,7 @@ func (c *containerLXC) Exec(command []string, env map[string]string, stdin *os.F
 		envSlice = append(envSlice, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	args := []string{c.daemon.execPath, "forkexec", c.name, c.daemon.lxcpath, filepath.Join(c.LogPath(), "lxc.conf")}
+	args := []string{execPath, "forkexec", c.name, c.daemon.lxcpath, filepath.Join(c.LogPath(), "lxc.conf")}
 
 	args = append(args, "--")
 	args = append(args, "env")
@@ -3001,7 +3001,7 @@ func (c *containerLXC) Exec(command []string, env map[string]string, stdin *os.F
 	args = append(args, command...)
 
 	cmd := exec.Cmd{}
-	cmd.Path = c.daemon.execPath
+	cmd.Path = execPath
 	cmd.Args = args
 	cmd.Stdin = stdin
 	cmd.Stdout = stdout
@@ -3103,7 +3103,7 @@ func (c *containerLXC) networkState() map[string]shared.ContainerStateNetwork {
 
 	// Get the network state from the container
 	out, err := exec.Command(
-		c.daemon.execPath,
+		execPath,
 		"forkgetnet",
 		fmt.Sprintf("%d", pid)).CombinedOutput()
 
@@ -3300,7 +3300,7 @@ func (c *containerLXC) insertMount(source, target, fstype string, flags int) err
 	mntsrc := filepath.Join("/dev/.lxd-mounts", filepath.Base(tmpMount))
 	pidStr := fmt.Sprintf("%d", pid)
 
-	out, err := exec.Command(c.daemon.execPath, "forkmount", pidStr, mntsrc, target).CombinedOutput()
+	out, err := exec.Command(execPath, "forkmount", pidStr, mntsrc, target).CombinedOutput()
 
 	if string(out) != "" {
 		for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
@@ -3330,7 +3330,7 @@ func (c *containerLXC) removeMount(mount string) error {
 
 	// Remove the mount from the container
 	pidStr := fmt.Sprintf("%d", pid)
-	out, err := exec.Command(c.daemon.execPath, "forkumount", pidStr, mount).CombinedOutput()
+	out, err := exec.Command(execPath, "forkumount", pidStr, mount).CombinedOutput()
 
 	if string(out) != "" {
 		for _, line := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
