@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"sync"
 
 	"github.com/gorilla/websocket"
 
@@ -96,8 +97,9 @@ func rsyncSendSetup(path string) (*exec.Cmd, net.Conn, io.ReadCloser, io.ReadClo
 	 * command (i.e. the command to run on --server). However, we're
 	 * hardcoding that at the other end, so we can just ignore it.
 	 */
-	rsyncCmd := fmt.Sprintf("sh -c \"socat -d -d - UNIX-CONNECT:%s\"", f.Name())
+	// rsyncCmd := fmt.Sprintf("sh -c \"socat -d -d - UNIX-CONNECT:%s\"", f.Name())
 	// rsyncCmd := fmt.Sprintf("sh -c \"nc -U %s\"", f.Name())
+	rsyncCmd := fmt.Sprintf("sh -c \"%s netcat %s\"", execPath, f.Name())
 	cmd := exec.Command(
 		"strace",
 		"-o",
@@ -202,4 +204,43 @@ func rsyncRecvCmd(path string) *exec.Cmd {
 // by path.
 func RsyncRecv(path string, conn *websocket.Conn) error {
 	return rsyncWebsocket(path, rsyncRecvCmd(path), conn)
+}
+
+// Netcat is called with:
+//
+//    lxd netcat /path/to/unix/socket
+//
+// and does unbuffered netcatting of to socket to stdin/stdout. Any arguments
+// after the path to the unix socket are ignored, so that this can be passed
+// directly to rsync as the sync command.
+func Netcat(args []string) error {
+	if len(args) < 2 {
+		return fmt.Errorf("Bad arguments %q", args)
+	}
+
+	uAddr, err := net.ResolveUnixAddr("unix", args[1])
+	if err != nil {
+		return err
+	}
+
+	conn, err := net.DialUnix("unix", nil, uAddr)
+	if err != nil {
+		return err
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(2)
+
+	go func() {
+		io.Copy(os.Stdout, conn)
+		wg.Done()
+	}()
+
+	go func() {
+		io.Copy(conn, os.Stdin)
+		wg.Done()
+	}()
+
+	wg.Wait()
+	return nil
 }
