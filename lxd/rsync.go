@@ -96,14 +96,21 @@ func rsyncSendSetup(path string) (*exec.Cmd, net.Conn, io.ReadCloser, io.ReadClo
 	 * command (i.e. the command to run on --server). However, we're
 	 * hardcoding that at the other end, so we can just ignore it.
 	 */
-	rsyncCmd := fmt.Sprintf("sh -c \"nc -U %s\"", f.Name())
+	rsyncCmd := fmt.Sprintf("sh -c \"socat -d -d - UNIX-CONNECT:%s\"", f.Name())
+	// rsyncCmd := fmt.Sprintf("sh -c \"nc -U %s\"", f.Name())
 	cmd := exec.Command(
+		"strace",
+		"-o",
+		"/tmp/rsync.out",
 		"rsync",
 		"-arvP",
 		"--devices",
 		"--numeric-ids",
 		"--partial",
 		"--progress",
+		"--debug=all",
+		"--info=all",
+		"-vv",
 		path,
 		"localhost:/tmp/foo",
 		"-e",

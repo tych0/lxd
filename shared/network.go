@@ -229,7 +229,9 @@ func WebsocketMirror(conn *websocket.Conn, w io.WriteCloser, r io.ReadCloser) (c
 				Debugf("Got error writing to writer %s", err)
 				break
 			}
+			Debugf("received %d", len(buf))
 			i, err := w.Write(buf)
+			Debugf("done writing")
 			if i != len(buf) {
 				Debugf("Didn't write all of buf")
 				break
