@@ -368,8 +368,13 @@ func (s *migrationSourceWs) Do(op *operation) error {
 		}
 		defer os.RemoveAll(checkpointDir)
 
-		opts := lxc.CheckpointOptions{Stop: true, Directory: checkpointDir, Verbose: true}
-		err = s.container.Checkpoint(opts)
+		opts := lxc.MigrateOptions{
+			Stop: true,
+			Directory: checkpointDir,
+			Verbose: true,
+			PreservesInodes: s.container.Storage().PreservesInodes(),
+		}
+		err = s.container.Migrate(lxc.MIGRATE_DUMP, opts)
 
 		if err2 := CollectCRIULogFile(s.container, checkpointDir, "migration", "dump"); err2 != nil {
 			shared.Debugf("Error collecting checkpoint log file %s", err)

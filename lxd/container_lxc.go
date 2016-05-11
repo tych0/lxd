@@ -2682,6 +2682,15 @@ func (c *containerLXC) Checkpoint(opts lxc.CheckpointOptions) error {
 	return c.c.Checkpoint(opts)
 }
 
+func (c *containerLXC) Migrate(cmd uint, opts lxc.MigrateOptions) error {
+	err := c.initLXC()
+	if err != nil {
+		return err
+	}
+
+	return c.c.Migrate(cmd, opts)
+}
+
 func (c *containerLXC) TemplateApply(trigger string) error {
 	// "create" and "copy" are deferred until next start
 	if shared.StringInSlice(trigger, []string{"create", "copy"}) {

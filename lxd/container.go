@@ -342,6 +342,7 @@ type container interface {
 	// Snapshots & migration
 	Restore(sourceContainer container) error
 	Checkpoint(opts lxc.CheckpointOptions) error
+	Migrate(cmd uint, opts lxc.MigrateOptions) error
 	StartFromMigration(imagesDir string) error
 	Snapshots() ([]container, error)
 
