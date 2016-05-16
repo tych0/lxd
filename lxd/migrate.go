@@ -25,6 +25,8 @@ import (
 
 	"github.com/lxc/lxd"
 	"github.com/lxc/lxd/shared"
+
+	log "gopkg.in/inconshreveable/log15.v2"
 )
 
 type migrationFields struct {
@@ -347,6 +349,16 @@ func (s *migrationSourceWs) Do(op *operation) error {
 		return err
 	}
 
+	checkpointDir := ""
+	unfreeze := func() error {
+		output, err := exec.Command("criu", "gc", "--tcp-established", "-D", checkpointDir).CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("%s\n%s", err.Error(), string(output))
+		}
+
+		return s.container.Unfreeze()
+	}
+
 	if s.live {
 		if header.Criu == nil {
 			driver.Cleanup()
@@ -369,10 +381,10 @@ func (s *migrationSourceWs) Do(op *operation) error {
 		defer os.RemoveAll(checkpointDir)
 
 		opts := lxc.MigrateOptions{
-			Stop: true,
 			Directory: checkpointDir,
 			Verbose: true,
 			PreservesInodes: s.container.Storage().PreservesInodes(),
+			LeaveFrozen: true,
 		}
 		err = s.container.Migrate(lxc.MIGRATE_DUMP, opts)
 
@@ -404,12 +416,18 @@ func (s *migrationSourceWs) Do(op *operation) error {
 		 * p.haul's protocol, it will make sense to do these in parallel.
 		 */
 		if err := RsyncSend(shared.AddSlash(checkpointDir), s.criuConn); err != nil {
+			if err2 := unfreeze(); err2 != nil {
+				shared.Log.Error("error unfreezing container after image send failure", log.Ctx{"err": err2})
+			}
 			driver.Cleanup()
 			s.sendControl(err)
 			return err
 		}
 
 		if err := driver.SendAfterCheckpoint(s.fsConn); err != nil {
+			if err2 := unfreeze(); err2 != nil {
+				shared.Log.Error("error unfreezing container after fs send failure", log.Ctx{"err": err2})
+			}
 			driver.Cleanup()
 			s.sendControl(err)
 			return err
@@ -424,8 +442,22 @@ func (s *migrationSourceWs) Do(op *operation) error {
 		return err
 	}
 
-	// TODO: should we add some config here about automatically restarting
-	// the container migrate failure? What about the failures above?
+	if s.live {
+		var err error
+
+		/* If the restore was successful, let's just kill the
+		 * container. Otherwise, let's unlock its network and unfreeze
+		 * it so that it is still running on this side.
+		 */
+		if *msg.Success {
+			err = s.container.Stop(true)
+		} else {
+			err = unfreeze()
+		}
+
+		shared.Log.Error("error terminating container after migration completion", log.Ctx{"err": err})
+	}
+
 	if !*msg.Success {
 		return fmt.Errorf(*msg.Message)
 	}
