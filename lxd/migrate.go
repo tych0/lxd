@@ -253,7 +253,13 @@ func (s *migrationSourceWs) Connect(op *operation, r *http.Request, w http.Respo
 		return os.ErrPermission
 	}
 
-	c, err := shared.WebsocketUpgrader.Upgrade(w, r, nil)
+	upgrader := websocket.Upgrader{
+		ReadBufferSize:  128 * 1024,
+		WriteBufferSize: 128 * 1024,
+		CheckOrigin:     func(r *http.Request) bool { return true },
+	}
+
+	c, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return err
 	}
