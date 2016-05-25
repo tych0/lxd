@@ -7,6 +7,7 @@ package main
 
 import (
 	"bufio"
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -443,16 +444,21 @@ type migrationSink struct {
 
 type MigrationSinkArgs struct {
 	Url       string
-	Dialer    websocket.Dialer
+	TLSConfig *tls.Config
 	Container container
 	Secrets   map[string]string
 }
 
 func NewMigrationSink(args *MigrationSinkArgs) (func() error, error) {
 	sink := migrationSink{
-		migrationFields{container: args.Container},
-		args.Url,
-		args.Dialer,
+		migrationFields: migrationFields{container: args.Container},
+		url: args.Url,
+		dialer: websocket.Dialer{
+			TLSClientConfig: args.TLSConfig,
+			NetDial:         shared.RFC3493Dialer,
+			ReadBufferSize:  128 * 1024,
+			WriteBufferSize:  128 * 1024,
+		},
 	}
 
 	var ok bool

@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/dustinkirkland/golang-petname"
-	"github.com/gorilla/websocket"
 	"github.com/lxc/lxd/shared"
 
 	log "gopkg.in/inconshreveable/log15.v2"
@@ -268,9 +267,7 @@ func createFromMigration(d *Daemon, req *containerPostReq) Response {
 
 		migrationArgs := MigrationSinkArgs{
 			Url: req.Source.Operation,
-			Dialer: websocket.Dialer{
-				TLSClientConfig: config,
-				NetDial:         shared.RFC3493Dialer},
+			TLSConfig: config,
 			Container: c,
 			Secrets:   req.Source.Websockets,
 		}
