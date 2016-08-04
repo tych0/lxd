@@ -1236,7 +1236,8 @@ func (s *zfsMigrationSourceDriver) send(conn *websocket.Conn, zfsName string, zf
 		return err
 	}
 
-	<-shared.WebsocketSendStream(conn, stdout, 4*1024*1024)
+	done, _ := shared.WebsocketSendStream(conn, stdout, 4*1024*1024)
+	<-done
 
 	output, err := ioutil.ReadAll(stderr)
 	if err != nil {

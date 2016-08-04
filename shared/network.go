@@ -144,18 +144,28 @@ func IsLoopback(iface *net.Interface) bool {
 	return int(iface.Flags&net.FlagLoopback) > 0
 }
 
-func WebsocketSendStream(conn *websocket.Conn, r io.Reader, bufferSize int) chan bool {
-	ch := make(chan bool)
+func WebsocketSendStream(conn *websocket.Conn, r io.Reader, bufferSize int) (chan bool, chan bool) {
+	done := make(chan bool)
+	streamEnd := make(chan bool)
 
 	if r == nil {
-		close(ch)
-		return ch
+		close(done)
+		close(streamEnd)
+		return done, streamEnd
 	}
 
 	go func(conn *websocket.Conn, r io.Reader) {
 		in := ReaderToChannel(r, bufferSize)
 		for {
-			buf, ok := <-in
+			var ok bool
+			var buf []byte
+			select {
+			case buf, ok = <-in:
+				break
+			case <-streamEnd:
+				ok = false
+				break
+			}
 			if !ok {
 				break
 			}
@@ -174,10 +184,10 @@ func WebsocketSendStream(conn *websocket.Conn, r io.Reader, bufferSize int) chan
 			}
 		}
 		conn.WriteMessage(websocket.TextMessage, []byte{})
-		ch <- true
+		done <- true
 	}(conn, r)
 
-	return ch
+	return done, streamEnd
 }
 
 func WebsocketRecvStream(w io.WriteCloser, conn *websocket.Conn) chan bool {

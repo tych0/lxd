@@ -1529,7 +1529,7 @@ func (c *Client) Exec(name string, cmd []string, env map[string]string,
 		}
 		defer conns[0].Close()
 
-		dones[0] = shared.WebsocketSendStream(conns[0], stdin, -1)
+		_, streamEnd := shared.WebsocketSendStream(conns[0], stdin, -1)
 
 		outputs := []io.WriteCloser{stdout, stderr}
 		for i := 1; i < 3; i++ {
@@ -1557,9 +1557,11 @@ func (c *Client) Exec(name string, cmd []string, env map[string]string,
 			<-dones[i]
 		}
 
-		// Once we're done, we explicitly close stdin, to signal the websockets
-		// we're done.
-		stdin.Close()
+		// Don't explicitly close stdin, since we might be holding onto
+		// a shell's stdin and we don't want to break it. Instead,
+		// let's just signal the goroutine mirroring stdin that we're
+		// done.
+		streamEnd <- true
 	}
 
 	// Now, get the operation's status too.
