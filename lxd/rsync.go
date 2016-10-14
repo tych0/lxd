@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 
 	"github.com/gorilla/websocket"
 
@@ -171,6 +172,23 @@ func RsyncRecv(path string, conn *websocket.Conn) error {
 	return rsyncWebsocket(path, rsyncRecvCmd(path), conn)
 }
 
+
+type hideAgainReader struct {
+	r io.Reader
+}
+
+func (hr hideAgainReader) Read(p []byte) (int, error) {
+	n, err := hr.r.Read(p)
+	if err != nil {
+		// golang's io.Copy doesn't understand EAGAIN, so let's mask it
+		if errno, ok := err.(syscall.Errno); ok && errno == syscall.EAGAIN {
+			return n, nil
+		}
+	}
+
+	return n, err
+}
+
 // Netcat is called with:
 //
 //    lxd netcat /path/to/unix/socket
@@ -197,7 +215,7 @@ func Netcat(args []string) error {
 	wg.Add(1)
 
 	go func() {
-		io.Copy(os.Stdout, conn)
+		io.Copy(os.Stdout, hideAgainReader{conn})
 		conn.Close()
 		wg.Done()
 	}()
