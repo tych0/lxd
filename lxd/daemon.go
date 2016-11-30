@@ -536,6 +536,8 @@ func (d *Daemon) UpdateHTTPsPort(newAddress string) error {
 
 		d.tomb.Go(func() error { return http.Serve(tcpl, d.mux) })
 		d.TCPSocket = &Socket{Socket: tcpl, CloseOnExit: true}
+
+		// XXX: Update raft port here
 	}
 
 	return nil
@@ -927,6 +929,15 @@ func (d *Daemon) Init() error {
 	}
 
 	d.mux.NotFoundHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		/* There's no good way to do wildcards for every URL under a
+		 * particular path like we want to do for the cluser API. So,
+		 * let's just hook the 404 handler to do it for us.
+		 */
+		if strings.HasPrefix(r.URL.Path, "/1.0/cluster/internal") {
+			ClusterHandler(w, r)
+			return
+		}
+
 		shared.LogInfo("Sending top level 404", log.Ctx{"url": r.URL})
 		w.Header().Set("Content-Type", "application/json")
 		NotFound.Render(w)
@@ -1013,7 +1024,18 @@ func (d *Daemon) Init() error {
 				d.TCPSocket.Socket.Close()
 			}
 			d.TCPSocket = &Socket{Socket: tcpl, CloseOnExit: true}
+
+			if shared.IsDir(shared.VarPath("rqlite")) {
+				addr := daemonConfig["cluster.raft_address"].Get()
+				shared.LogInfof("starting rqlite on %s", addr)
+
+				err = StartRQLite(d, addr, shared.PathExists(shared.VarPath("rqlite", "peers.json")))
+				if err != nil {
+					return fmt.Errorf("Couldn't rejoin cluster: %v", err)
+				}
+			}
 		}
+
 	}
 
 	d.tomb.Go(func() error {

@@ -173,6 +173,8 @@ func (k *daemonConfigKey) GetInt64() int64 {
 func daemonConfigInit(db *sql.DB) error {
 	// Set all the keys
 	daemonConfig = map[string]*daemonConfigKey{
+		"cluster.raft_address":           &daemonConfigKey{valueType: "string"},
+
 		"core.https_address":             &daemonConfigKey{valueType: "string", setter: daemonConfigSetAddress},
 		"core.https_allowed_headers":     &daemonConfigKey{valueType: "string"},
 		"core.https_allowed_methods":     &daemonConfigKey{valueType: "string"},

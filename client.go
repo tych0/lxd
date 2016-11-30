@@ -2813,3 +2813,51 @@ func (c *Client) ListNetworks() ([]shared.NetworkConfig, error) {
 
 	return networks, nil
 }
+
+func (c *Client) ClusterInit(leader bool) error {
+	if c.Remote.Public {
+		return fmt.Errorf("This function isn't supported by public remotes.")
+	}
+
+	query := url.Values{
+		"leader": []string{fmt.Sprintf("%v", leader)},
+		"addr": []string{strings.TrimPrefix(c.Remote.Addr, "https://")},
+	}
+	url := "cluster" + "?" + query.Encode()
+
+	_, err := c.post(url, nil, Sync)
+	return err
+}
+
+func (c *Client) ClusterAdd(toJoin []string) error {
+	if c.Remote.Public {
+		return fmt.Errorf("This function isn't supported by public remotes.")
+	}
+
+	url := "cluster"
+
+	_, err := c.patch(url, toJoin, Sync)
+	return err
+}
+
+func (c *Client) ClusterInfo() (*shared.ClusterStatus, error) {
+	m := shared.ClusterStatus{}
+
+	resp, err := c.get("cluster")
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(resp.Metadata, &m)
+	return &m, err
+}
+
+func (c *Client) ClusterRemove(addr string) error {
+	if c.Remote.Public {
+		return fmt.Errorf("This function isn't supported by public remotes.")
+	}
+
+	query := url.Values{"addr": []string{addr}}
+	_, err := c.delete("cluster?" + query.Encode(), nil, Sync)
+	return err
+}
