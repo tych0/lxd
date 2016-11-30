@@ -10,6 +10,10 @@ import (
 	"github.com/lxc/lxd/shared"
 )
 
+const (
+	enableForeignKeys = "PRAGMA foreign_keys=ON"
+)
+
 var (
 	// DbErrAlreadyDefined hapens when the given entry already exists,
 	// for example a container.
@@ -247,7 +251,7 @@ func initializeDbObject(d *Daemon, path string) (err error) {
 	}
 
 	// Run PRAGMA statements now since they are *per-connection*.
-	d.db.Exec("PRAGMA foreign_keys=ON;") // This allows us to use ON DELETE CASCADE
+	d.db.Exec(enableForeignKeys) // This allows us to use ON DELETE CASCADE
 
 	// Apply any update
 	err = dbUpdatesApplyAll(d)

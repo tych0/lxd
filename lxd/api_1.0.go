@@ -44,6 +44,9 @@ var api10 = []Command{
 	certificateFingerprintCmd,
 	profilesCmd,
 	profileCmd,
+	clusterCmd,
+	clusterNodesCmd,
+	clusterNodeNameCmd,
 }
 
 func api10Get(d *Daemon, r *http.Request) Response {

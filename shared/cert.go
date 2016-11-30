@@ -222,3 +222,12 @@ func CertFingerprintStr(c string) (string, error) {
 
 	return CertFingerprint(cert), nil
 }
+
+func ParseCert(c string) (*x509.Certificate, error) {
+	certBlock, _ := pem.Decode([]byte(c))
+	if certBlock == nil {
+		return nil, fmt.Errorf("Invalid remote certificate")
+	}
+
+	return x509.ParseCertificate(certBlock.Bytes)
+}

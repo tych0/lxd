@@ -159,6 +159,7 @@ type command interface {
 }
 
 var commands = map[string]command{
+	"cluster": &clusterCmd{},
 	"config":  &configCmd{},
 	"copy":    &copyCmd{},
 	"delete":  &deleteCmd{},

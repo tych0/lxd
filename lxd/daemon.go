@@ -237,6 +237,29 @@ func (d *Daemon) isTrustedClient(r *http.Request) bool {
 	return false
 }
 
+func (d *Daemon) isClusterRequest(r *http.Request) (bool, error) {
+	if r.TLS == nil {
+		return false, nil
+	}
+
+	members := ClusterMembers()
+
+	for _, m := range members {
+		mCert, err := shared.ParseCert(m.Certificate)
+		if err != nil {
+			return false, err
+		}
+
+		for _, cert := range r.TLS.PeerCertificates {
+			if bytes.Compare(cert.Raw, mCert.Raw) == 0 {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
+}
+
 func isJSONRequest(r *http.Request) bool {
 	for k, vs := range r.Header {
 		if strings.ToLower(k) == "content-type" &&
@@ -270,7 +293,17 @@ func (d *Daemon) createCmd(version string, c Command) {
 	d.mux.HandleFunc(uri, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		if d.isTrustedClient(r) {
+		clusterReq, err := d.isClusterRequest(r)
+		if err != nil {
+			InternalError(err).Render(w)
+			return
+		}
+
+		if clusterReq {
+			shared.LogDebug(
+				"handling",
+				log.Ctx{"method": r.Method, "url": r.URL.RequestURI(), "ip": r.RemoteAddr})
+		} else if d.isTrustedClient(r) {
 			shared.LogDebug(
 				"handling",
 				log.Ctx{"method": r.Method, "url": r.URL.RequestURI(), "ip": r.RemoteAddr})
@@ -527,6 +560,8 @@ func (d *Daemon) UpdateHTTPsPort(newAddress string) error {
 
 		d.tomb.Go(func() error { return http.Serve(tcpl, &lxdHttpServer{d.mux, d}) })
 		d.TCPSocket = &Socket{Socket: tcpl, CloseOnExit: true}
+
+		// XXX: Update raft port here
 	}
 
 	return nil
@@ -1007,7 +1042,18 @@ func (d *Daemon) Init() error {
 				d.TCPSocket.Socket.Close()
 			}
 			d.TCPSocket = &Socket{Socket: tcpl, CloseOnExit: true}
+
+			if shared.IsDir(shared.VarPath("rqlite")) {
+				// XXX: we need a better way to figure this
+				// out; we could accidentally split brain here
+				// if we're not careful
+				err = StartRQLite(d, shared.PathExists(shared.VarPath("rqlite", "peers.json")))
+				if err != nil {
+					return fmt.Errorf("Couldn't rejoin cluster: %v", err)
+				}
+			}
 		}
+
 	}
 
 	d.tomb.Go(func() error {

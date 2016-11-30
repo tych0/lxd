@@ -2801,3 +2801,54 @@ func (c *Client) ListNetworks() ([]api.Network, error) {
 
 	return networks, nil
 }
+
+func (c *Client) ClusterInit(leader bool, name string) error {
+	if c.Remote.Public {
+		return fmt.Errorf("This function isn't supported by public remotes.")
+	}
+
+	query := url.Values{
+		"leader": []string{fmt.Sprintf("%v", leader)},
+		"name":   []string{name},
+	}
+	url := "cluster" + "?" + query.Encode()
+
+	_, err := c.post(url, nil, api.SyncResponse)
+	return err
+}
+
+func (c *Client) ClusterAdd(m shared.ClusterMember) error {
+	if c.Remote.Public {
+		return fmt.Errorf("This function isn't supported by public remotes.")
+	}
+
+	url := "cluster/nodes"
+
+	_, err := c.post(url, m, api.SyncResponse)
+	return err
+}
+
+func (c *Client) ClusterInfo() (*shared.ClusterStatus, error) {
+	if c.Remote.Public {
+		return nil, fmt.Errorf("This function isn't supported by public remotes.")
+	}
+
+	m := shared.ClusterStatus{}
+
+	resp, err := c.get("cluster/nodes")
+	if err != nil {
+		return nil, err
+	}
+
+	err = json.Unmarshal(resp.Metadata, &m)
+	return &m, err
+}
+
+func (c *Client) ClusterRemove(name string) error {
+	if c.Remote.Public {
+		return fmt.Errorf("This function isn't supported by public remotes.")
+	}
+
+	_, err := c.delete("cluster/nodes/"+name, nil, api.SyncResponse)
+	return err
+}

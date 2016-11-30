@@ -22,6 +22,7 @@ var apiInternal = []Command{
 	internalContainerOnStartCmd,
 	internalContainerOnStopCmd,
 	internalContainersCmd,
+	raftConnectCmd,
 }
 
 func internalReady(d *Daemon, r *http.Request) Response {

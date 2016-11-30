@@ -9,6 +9,8 @@ import (
 	"mime/multipart"
 	"net/http"
 	"os"
+	"runtime"
+	"strings"
 	"time"
 
 	"github.com/mattn/go-sqlite3"
@@ -302,7 +304,14 @@ func BadRequest(err error) Response {
 }
 
 func InternalError(err error) Response {
-	return &errorResponse{http.StatusInternalServerError, err.Error()}
+	msg := err.Error()
+	if debug {
+		buf := make([]byte, 1<<16)
+		runtime.Stack(buf, false)
+		msg = fmt.Sprintf("%s\n\n%s", strings.TrimRight(string(buf), "\x00"), msg)
+	}
+
+	return &errorResponse{http.StatusInternalServerError, msg}
 }
 
 func PreconditionFailed(err error) Response {
@@ -354,4 +363,25 @@ func SmartError(err error) Response {
 	default:
 		return InternalError(err)
 	}
+}
+
+type rerenderResponse struct {
+	*http.Response
+}
+
+func (r *rerenderResponse) String() string {
+	return fmt.Sprintf("rerender response %s", r.Status)
+}
+
+func (r *rerenderResponse) Render(w http.ResponseWriter) error {
+	for k, vs := range r.Header {
+		for _, v := range vs {
+			w.Header().Add(k, v)
+		}
+	}
+
+	w.WriteHeader(r.StatusCode)
+
+	_, err := io.Copy(w, r.Body)
+	return err
 }

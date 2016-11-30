@@ -283,6 +283,10 @@ func daemonConfigSetStorage(d *Daemon, key string, value string) (string, error)
 }
 
 func daemonConfigSetAddress(d *Daemon, key string, value string) (string, error) {
+	if ClusterMode() {
+		return "", fmt.Errorf("Can't reset https address when in cluster mode")
+	}
+
 	// Update the current https address
 	err := d.UpdateHTTPsPort(value)
 	if err != nil {
