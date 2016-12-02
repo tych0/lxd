@@ -309,6 +309,29 @@ func PreconditionFailed(err error) Response {
 	return &errorResponse{http.StatusPreconditionFailed, err.Error()}
 }
 
+func ServiceUnavailable(err error) Response {
+	return &errorResponse{http.StatusServiceUnavailable, err.Error()}
+}
+
+type redirectResponse struct {
+	req   *http.Request
+	type_ int
+	url   string
+}
+
+func (rr *redirectResponse) Render(w http.ResponseWriter) error {
+	http.Redirect(w, rr.req, rr.url, rr.type_)
+	return nil
+}
+
+func (rr *redirectResponse) String() string {
+	return fmt.Sprintf("redirect (%d) to %s", rr.type_, rr.url)
+}
+
+func Redirect(r *http.Request, url string) Response {
+	return &redirectResponse{r, http.StatusMovedPermanently, url}
+}
+
 /*
  * SmartError returns the right error message based on err.
  */
