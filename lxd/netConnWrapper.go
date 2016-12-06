@@ -29,8 +29,9 @@ func (c *WebsocketToNetConn) Read(b []byte) (int, error) {
 	}
 
 	n, err := c.cur.Read(b)
-	if n < len(b) {
+	if err == io.EOF {
 		c.cur = nil
+		err = nil
 	}
 
 	return n, err
