@@ -107,13 +107,18 @@ func (t *LXDTransport) Dial(address string, timeout time.Duration) (net.Conn, er
 
 func (d *Daemon) ClusterAddr() (string, error) {
 	addrStr := d.TCPSocket.Socket.Addr().String()
-	addr := net.ParseIP(addrStr)
+	justAddr, _, err := net.SplitHostPort(addrStr)
+	if err != nil {
+		return "", err
+	}
+
+	addr := net.ParseIP(justAddr)
 	if addr == nil {
 		return "", fmt.Errorf("unparsable ip %s", addrStr)
 	}
 
 	if addr.IsUnspecified() {
-		return "", fmt.Errorf("Cannot use unspecified addr %s as cluster addr", addrStr)
+		return "", fmt.Errorf("Cannot use wildcard addr %s as cluster addr", addrStr)
 	}
 
 	return addrStr, nil
@@ -249,7 +254,7 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 
 		me := addMemberStmt(addr, name, string(cert))
 
-		_, err = store.Execute([]string{CLUSTER_SCHEMA, me}, false, true)
+		_, err = store.Execute([]string{CLUSTER_SCHEMA, me}, false, false)
 		if err != nil {
 			transport = nil
 			store.Close(false)
@@ -262,22 +267,26 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 	return EmptySyncResponse
 }
 
+var clusterCmd = Command{
+	name: "cluster",
+	get: clusterGet,
+	post: clusterPost,
+}
+
 // /1.0/cluster/nodes
 func clusterNodesGet(d *Daemon, r *http.Request) Response {
-	nodes, err := store.Nodes()
-	if err != nil {
-		return InternalError(err)
-	}
-
 	leader := store.Leader()
+
+	ret, err := ClusterInfo()
 	if err != nil {
 		return InternalError(err)
 	}
 
-	ret := []shared.ClusterMember{}
-
-	for _, n := range nodes {
-		ret = append(ret, shared.ClusterMember{Leader: leader == n, Addr: n})
+	for _, n := range ret {
+		if n.Addr == leader {
+			n.Leader = true
+			break
+		}
 	}
 
 	return SyncResponse(true, shared.ClusterStatus{ret})
@@ -308,6 +317,12 @@ func clusterNodesPost(d *Daemon, r *http.Request) Response {
 	}
 
 	return EmptySyncResponse
+}
+
+var clusterNodesCmd = Command{
+	name: "cluster/nodes",
+	get: clusterNodesGet,
+	post: clusterNodesPost,
 }
 
 func clusterDelete(d *Daemon, r *http.Request) Response {
@@ -367,13 +382,6 @@ func clusterDelete(d *Daemon, r *http.Request) Response {
 	return EmptySyncResponse
 }
 
-var clusterCmd = Command{
-	name: "cluster",
-	get: clusterGet,
-	post: clusterPost,
-	delete: clusterDelete,
-}
-
 func clusterDbQuery(q string) (*rqdb.Rows, error) {
 	if store == nil {
 		return nil, fmt.Errorf("cluster db not initialized")
@@ -395,8 +403,10 @@ func clusterDbQuery(q string) (*rqdb.Rows, error) {
 
 func ClusterInfo() ([]shared.ClusterMember, error) {
 	if store == nil {
+		shared.LogErrorf("no store")
 		return nil, nil
 	}
+	leader := store.Leader()
 
 	nodes, err := store.Nodes()
 	if err != nil {
@@ -434,11 +444,21 @@ func ClusterInfo() ([]shared.ClusterMember, error) {
 	for _, r := range rows.Values {
 		m := shared.ClusterMember{}
 
-		m.Name = r[0].(string)
-		m.Addr = r[0].(string)
-		m.Certificate = r[0].(string)
+		n := make([]byte, len(r[0].([]byte)))
+		copy(n, r[0].([]byte))
+		a := make([]byte, len(r[1].([]byte)))
+		copy(a, r[1].([]byte))
+
+		m.Name = string(n)
+		m.Addr = string(a)
+		m.Certificate = r[2].(string)
+		m.Leader = leader == m.Addr
 
 		members = append(members, m)
+	}
+
+	if len(members) != len(nodes) {
+		return nil, fmt.Errorf("didn't get all members from the db")
 	}
 
 	return members, nil
@@ -448,5 +468,5 @@ func addMemberStmt(addr, name, certificate string) string {
 	// XXX: this could be sql injected. unfortunately rqlite
 	// doesn't support prepared statements:
 	// https://github.com/rqlite/rqlite/issues/140
-	return fmt.Sprintf("INSERT INTO cluster (addr, name, certificate) values ('%s', '%s', '%s')", addr, name, certificate)
+	return fmt.Sprintf("INSERT INTO cluster_members (addr, name, certificate) values ('%s', '%s', '%s')", addr, name, certificate)
 }

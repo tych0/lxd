@@ -42,6 +42,7 @@ var api10 = []Command{
 	profilesCmd,
 	profileCmd,
 	clusterCmd,
+	clusterNodesCmd,
 	clusterConnectCmd,
 }
 

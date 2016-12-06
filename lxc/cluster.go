@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"sort"
-	"strings"
 
 	"github.com/olekukonko/tablewriter"
 
@@ -140,15 +139,8 @@ func (c *clusterCmd) info(config *lxd.Config, args []string) error {
 
 	data := [][]string{}
 	for _, m := range info.Members {
-		name := "-"
-		for k, c := range config.Remotes {
-			if strings.TrimPrefix(c.Addr, "https://") == m.Addr {
-				name = k
-			}
-		}
-
 		leader := fmt.Sprintf("%v", m.Leader)
-		data = append(data, []string{name, m.Addr, leader, "OK"})
+		data = append(data, []string{m.Name, m.Addr, leader, "OK"})
 	}
 
 	sort.Sort(byName(data))

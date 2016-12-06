@@ -2847,7 +2847,7 @@ func (c *Client) ClusterInfo() (*shared.ClusterStatus, error) {
 
 	m := shared.ClusterStatus{}
 
-	resp, err := c.get("cluster")
+	resp, err := c.get("cluster/nodes")
 	if err != nil {
 		return nil, err
 	}
