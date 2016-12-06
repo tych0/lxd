@@ -1,15 +1,15 @@
 package main
 
 import (
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/olekukonko/tablewriter"
 
 	"github.com/lxc/lxd"
+	"github.com/lxc/lxd/shared"
 	"github.com/lxc/lxd/shared/i18n"
 )
 
@@ -34,85 +34,90 @@ func (c *clusterCmd) run(config *lxd.Config, args []string) error {
 	}
 
 	switch args[0] {
-	case "create":
-		return c.cluster(config, args[1:], true)
-	case "join":
-		return c.cluster(config, args[1:], false)
-	case "leave":
-		return c.leave(config, args[1:])
-	case "show":
-		return c.show(config, args[1:])
+	case "enable":
+		return c.enable(config, args[1:])
+	case "add":
+		return c.add(config, args[1:])
+	case "remove":
+		return c.remove(config, args[1:])
+	case "info":
+		return c.info(config, args[1:])
 	default:
 		return errArgs
 	}
 }
 
-func (c *clusterCmd) cluster(config *lxd.Config, args []string, initFirst bool) error {
+func (c *clusterCmd) enable(config *lxd.Config, args []string) error {
+	if len(args) < 1 {
+		return errArgs
+	}
+
+	remote := "local"
+	if len(args) == 2 {
+		remote = args[0]
+	}
+
+	name := args[len(args)-1]
+
+	client, err := lxd.NewClient(config, remote)
+	if err != nil {
+		return err
+	}
+
+	return client.ClusterInit(true, name)
+}
+
+func (c *clusterCmd) add(config *lxd.Config, args []string) error {
 	if len(args) < 2 {
 		return errArgs
 	}
 
-	clients := []*lxd.Client{}
-	certs := []*x509.Certificate{}
-
-	for _, remote := range args {
-		c, err := lxd.NewClient(config, remote)
-		if err != nil {
-			return err
-		}
-
-		status, err := c.ServerStatus()
-		if err != nil {
-			return err
-		}
-
-		clients = append(clients, c)
-		certBlock, _ := pem.Decode([]byte(status.Environment.Certificate))
-		if certBlock == nil {
-			return fmt.Errorf(i18n.G("Invalid certificate"))
-		}
-
-		cert, err := x509.ParseCertificate(certBlock.Bytes)
-		if err != nil {
-			return err
-		}
-
-		certs = append(certs, cert)
+	cluster := args[0]
+	node := ""
+	if len(args) == 3 {
+		node = args[1]
 	}
 
-	/* every server needs to have every other servers' cert */
-	for i, c := range clients {
-		for _, cert := range certs {
-			err := c.CertificateAdd(cert, args[i])
-			// XXX: we need a better way to do stuff like this
-			if err != nil && err.Error() != "Certificate already in trust store" {
-				// TODO: remove the certs that were already added
-				return err
-			}
-		}
+	name := args[len(args)-1]
+
+	cc, err := lxd.NewClient(config, cluster)
+	if err != nil {
+		return err
 	}
 
-	if initFirst {
-		err := clients[0].ClusterInit(true)
-		if err != nil {
-			return err
-		}
+	nc, err := lxd.NewClient(config, node)
+	if err != nil {
+		return err
 	}
 
-	addrs := []string{}
-	for _, c := range clients[1:] {
-		err := c.ClusterInit(false)
-		if err != nil {
-			return err
-		}
-		justAddr := strings.TrimPrefix(c.Remote.Addr, "https://")
-		addrs = append(addrs, justAddr)
+	nStatus, err := nc.ServerStatus()
+	if err != nil {
+		return err
 	}
 
-	return clients[0].ClusterAdd(addrs)
+	err = nc.ClusterInit(false, name)
+	if err != nil {
+		return err
+	}
+
+	addr := ""
+	switch a := nStatus.Config["core.https_address"].(type) {
+	case string:
+		addr = a
+	default:
+		return fmt.Errorf("core.https_address is not a string: %v", nStatus.Config["core.https_address"])
+	}
+
+	m := shared.ClusterMember{
+		Addr:        addr,
+		Name:        name,
+		Certificate: nStatus.Environment.Certificate,
+	}
+
+	return cc.ClusterAdd(m)
 }
 
-func (c *clusterCmd) show(config *lxd.Config, args []string) error {
+func (c *clusterCmd) info(config *lxd.Config, args []string) error {
 	if len(args) != 1 {
 		return errArgs
 	}
@@ -131,8 +136,9 @@ func (c *clusterCmd) show(config *lxd.Config, args []string) error {
 	table.SetAutoWrapText(false)
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
 	table.SetRowLine(true)
-	table.SetHeader([]string{"NAME", "URL", "LEADER"})
+	table.SetHeader([]string{"NAME", "URL", "LEADER", "STATE"})
 
+	data := [][]string{}
 	for _, m := range info.Members {
 		name := "-"
 		for k, c := range config.Remotes {
@@ -142,15 +148,17 @@ func (c *clusterCmd) show(config *lxd.Config, args []string) error {
 		}
 
 		leader := fmt.Sprintf("%v", m.Leader)
-		table.Append([]string{name, m.Addr, leader})
+		data = append(data, []string{name, m.Addr, leader, "OK"})
 	}
 
+	sort.Sort(byName(data))
+	table.AppendBulk(data)
 	table.Render()
 
 	return nil
 }
 
-func (c *clusterCmd) leave(config *lxd.Config, args []string) error {
+func (c *clusterCmd) remove(config *lxd.Config, args []string) error {
 	if len(args) != 1 {
 		return errArgs
 	}

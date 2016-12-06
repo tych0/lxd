@@ -2814,14 +2814,14 @@ func (c *Client) ListNetworks() ([]shared.NetworkConfig, error) {
 	return networks, nil
 }
 
-func (c *Client) ClusterInit(leader bool) error {
+func (c *Client) ClusterInit(leader bool, name string) error {
 	if c.Remote.Public {
 		return fmt.Errorf("This function isn't supported by public remotes.")
 	}
 
 	query := url.Values{
 		"leader": []string{fmt.Sprintf("%v", leader)},
-		"addr": []string{strings.TrimPrefix(c.Remote.Addr, "https://")},
+		"name":   []string{name},
 	}
 	url := "cluster" + "?" + query.Encode()
 
@@ -2829,18 +2829,22 @@ func (c *Client) ClusterInit(leader bool) error {
 	return err
 }
 
-func (c *Client) ClusterAdd(toJoin []string) error {
+func (c *Client) ClusterAdd(m shared.ClusterMember) error {
 	if c.Remote.Public {
 		return fmt.Errorf("This function isn't supported by public remotes.")
 	}
 
-	url := "cluster"
+	url := "cluster/nodes"
 
-	_, err := c.patch(url, toJoin, Sync)
+	_, err := c.post(url, m, Sync)
 	return err
 }
 
 func (c *Client) ClusterInfo() (*shared.ClusterStatus, error) {
+	if c.Remote.Public {
+		return nil, fmt.Errorf("This function isn't supported by public remotes.")
+	}
+
 	m := shared.ClusterStatus{}
 
 	resp, err := c.get("cluster")

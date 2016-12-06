@@ -16,13 +16,30 @@ import (
 
 	rqhttp "github.com/rqlite/rqlite/http"
 	rqstore "github.com/rqlite/rqlite/store"
+	rqdb "github.com/rqlite/rqlite/db"
 )
+
+const CLUSTER_SCHEMA string = `
+CREATE TABLE IF NOT EXISTS cluster_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    addr VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    certificate TEXT NOT NULL,
+    UNIQUE (addr),
+    UNIQUE (name)
+);
+`
 
 var (
 	transport *LXDTransport
 	store     *rqstore.Store
 	service   *rqhttp.Service
+	members   []shared.ClusterMember
 )
+
+func ClusterMode() bool {
+	return transport != nil
+}
 
 // LXDTransport basically wraps our websocket API, creating a transport layer
 // on top of it for raft to use.
@@ -88,7 +105,28 @@ func (t *LXDTransport) Dial(address string, timeout time.Duration) (net.Conn, er
 	return &WebsocketToNetConn{conn: conn}, nil
 }
 
-func StartRQLite(d *Daemon, myAddr string, leader bool) error {
+func (d *Daemon) ClusterAddr() (string, error) {
+	addrStr := d.TCPSocket.Socket.Addr().String()
+	addr := net.ParseIP(addrStr)
+	if addr == nil {
+		return "", fmt.Errorf("unparsable ip %s", addrStr)
+	}
+
+	if addr.IsUnspecified() {
+		return "", fmt.Errorf("Cannot use unspecified addr %s as cluster addr", addrStr)
+	}
+
+	return addrStr, nil
+}
+
+func StartRQLite(d *Daemon, leader bool) error {
+	myAddr, err := d.ClusterAddr()
+	if err != nil {
+		return err
+	}
+
+	shared.LogInfof("starting rqlite on %s", myAddr)
+
 	config := rqstore.NewDBConfig("", true)
 	transport = &LXDTransport{
 		myAddr: myAddr,
@@ -98,16 +136,8 @@ func StartRQLite(d *Daemon, myAddr string, leader bool) error {
 
 	store = rqstore.New(config, shared.VarPath("rqlite"), transport)
 
-	err := store.Open(leader)
+	err = store.Open(leader)
 	if err != nil {
-		store.Close(false)
-		store = nil
-		return err
-	}
-
-	err = daemonConfig["cluster.raft_address"].Set(d, myAddr)
-	if err != nil {
-		transport = nil
 		store.Close(false)
 		store = nil
 		return err
@@ -167,6 +197,73 @@ var clusterConnectCmd = Command{name: "cluster/connect", get: clusterConnectGet,
 
 // /1.0/cluster
 func clusterGet(d *Daemon, r *http.Request) Response {
+	state := "DISABLED"
+	if ClusterMode() {
+		state = "OK"
+	}
+
+	ret := map[string]interface{}{
+		"state": state,
+		"keys": []string{},
+	}
+
+	return SyncResponse(true, ret)
+}
+
+func clusterPost(d *Daemon, r *http.Request) Response {
+	leader := r.FormValue("leader")
+	name := r.FormValue("name")
+
+	err := StartRQLite(d, leader == "true")
+	if err != nil {
+		return InternalError(err)
+	}
+
+	if leader == "true" {
+		_, err := store.WaitForLeader(5 * time.Second)
+		if err != nil {
+			transport = nil
+			store.Close(false)
+			store = nil
+			service = nil
+			return InternalError(err)
+		}
+
+		cert, err := ioutil.ReadFile(shared.VarPath("server.crt"))
+		if err != nil {
+			transport = nil
+			store.Close(false)
+			store = nil
+			service = nil
+			return InternalError(err)
+		}
+
+		addr, err := d.ClusterAddr()
+		if err != nil {
+			transport = nil
+			store.Close(false)
+			store = nil
+			service = nil
+			return InternalError(err)
+		}
+
+		me := addMemberStmt(addr, name, string(cert))
+
+		_, err = store.Execute([]string{CLUSTER_SCHEMA, me}, false, true)
+		if err != nil {
+			transport = nil
+			store.Close(false)
+			store = nil
+			service = nil
+			return InternalError(err)
+		}
+	}
+
+	return EmptySyncResponse
+}
+
+// /1.0/cluster/nodes
+func clusterNodesGet(d *Daemon, r *http.Request) Response {
 	nodes, err := store.Nodes()
 	if err != nil {
 		return InternalError(err)
@@ -186,44 +283,28 @@ func clusterGet(d *Daemon, r *http.Request) Response {
 	return SyncResponse(true, shared.ClusterStatus{ret})
 }
 
-func clusterPost(d *Daemon, r *http.Request) Response {
-	leader := r.FormValue("leader")
-	addr := r.FormValue("addr")
+func clusterNodesPost(d *Daemon, r *http.Request) Response {
+	m := shared.ClusterMember{}
 
-	if addr == "" {
-		return BadRequest(fmt.Errorf("must provide address for raft"))
-	}
-
-	err := StartRQLite(d, addr, leader == "true")
-	if err != nil {
-		return InternalError(err)
-	}
-
-	if leader == "true" {
-		_, err := store.WaitForLeader(5 * time.Second)
-		if err != nil {
-			store = nil
-			return InternalError(err)
-		}
-	}
-
-	return EmptySyncResponse
-}
-
-func clusterPatch(d *Daemon, r *http.Request) Response {
-	req := []string{}
-
-	err := json.NewDecoder(r.Body).Decode(&req)
+	err := json.NewDecoder(r.Body).Decode(&m)
 	if err != nil {
 		return BadRequest(err)
 	}
 
-	for _, addr := range req {
-		// XXX: need to guarantee that this is the leader or redirect
-		err := store.Join(addr)
+	_, err = store.Execute([]string{addMemberStmt(m.Addr, m.Name, m.Certificate)}, false, true)
+	if err != nil {
+		return InternalError(err)
+	}
+
+	// XXX: need to guarantee that this is the leader or proxy the request
+	err = store.Join(m.Addr)
+	if err != nil {
+		// XXX: see note elsewhere about prepared statements
+		_, err := store.Execute([]string{fmt.Sprintf("DELETE FROM cluster_members WHERE name = '%s'", m.Name)}, false, true)
 		if err != nil {
 			return InternalError(err)
 		}
+		return InternalError(err)
 	}
 
 	return EmptySyncResponse
@@ -290,6 +371,82 @@ var clusterCmd = Command{
 	name: "cluster",
 	get: clusterGet,
 	post: clusterPost,
-	patch: clusterPatch,
 	delete: clusterDelete,
+}
+
+func clusterDbQuery(q string) (*rqdb.Rows, error) {
+	if store == nil {
+		return nil, fmt.Errorf("cluster db not initialized")
+	}
+
+	// XXX: Strong here will be Very Slow; we should probably use Weak, but
+	// then we need to do some additional handling and redirecting.
+	result, err := store.Query([]string{q}, false, true, rqstore.Strong)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(result) != 1 {
+		return nil, fmt.Errorf("wrong number of rows, expected %d", len(result))
+	}
+
+	return result[0], err
+}
+
+func ClusterInfo() ([]shared.ClusterMember, error) {
+	if store == nil {
+		return nil, nil
+	}
+
+	nodes, err := store.Nodes()
+	if err != nil {
+		return nil, err
+	}
+
+	foundAll := true
+	for _, n := range nodes {
+		found := false
+
+		for _, m := range members {
+			if n == m.Addr {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			foundAll = false
+			break
+		}
+	}
+
+	if foundAll {
+		return members, nil
+	}
+
+	rows, err := clusterDbQuery("SELECT name, addr, certificate FROM cluster_members")
+	if err != nil {
+		return nil, err
+	}
+
+	members = []shared.ClusterMember{}
+
+	for _, r := range rows.Values {
+		m := shared.ClusterMember{}
+
+		m.Name = r[0].(string)
+		m.Addr = r[0].(string)
+		m.Certificate = r[0].(string)
+
+		members = append(members, m)
+	}
+
+	return members, nil
+}
+
+func addMemberStmt(addr, name, certificate string) string {
+	// XXX: this could be sql injected. unfortunately rqlite
+	// doesn't support prepared statements:
+	// https://github.com/rqlite/rqlite/issues/140
+	return fmt.Sprintf("INSERT INTO cluster (addr, name, certificate) values ('%s', '%s', '%s')", addr, name, certificate)
 }

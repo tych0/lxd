@@ -1026,10 +1026,10 @@ func (d *Daemon) Init() error {
 			d.TCPSocket = &Socket{Socket: tcpl, CloseOnExit: true}
 
 			if shared.IsDir(shared.VarPath("rqlite")) {
-				addr := daemonConfig["cluster.raft_address"].Get()
-				shared.LogInfof("starting rqlite on %s", addr)
-
-				err = StartRQLite(d, addr, shared.PathExists(shared.VarPath("rqlite", "peers.json")))
+				// XXX: we need a better way to figure this
+				// out; we could accidentally split brain here
+				// if we're not careful
+				err = StartRQLite(d, shared.PathExists(shared.VarPath("rqlite", "peers.json")))
 				if err != nil {
 					return fmt.Errorf("Couldn't rejoin cluster: %v", err)
 				}
@@ -1134,6 +1134,25 @@ func (d *Daemon) CheckTrustState(cert x509.Certificate) bool {
 	for k, v := range d.clientCerts {
 		if bytes.Compare(cert.Raw, v.Raw) == 0 {
 			shared.LogDebug("Found cert", log.Ctx{"k": k})
+			return true
+		}
+	}
+
+	members, err := ClusterInfo()
+	if err != nil {
+		// XXX
+		return false
+	}
+
+	for _, m := range members {
+		mCert, err := m.ParseCert()
+		if err != nil {
+			// XXX
+			return false
+		}
+
+		if bytes.Compare(cert.Raw, mCert.Raw) == 0 {
+			shared.LogDebug("Found cluster cert", log.Ctx{"addr": m.Addr})
 			return true
 		}
 	}
