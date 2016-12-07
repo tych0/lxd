@@ -1131,6 +1131,7 @@ func (d *Daemon) Ready() error {
 
 // CheckTrustState returns True if the client is trusted else false.
 func (d *Daemon) CheckTrustState(cert x509.Certificate) bool {
+	shared.LogErrorf("checking trust state")
 	for k, v := range d.clientCerts {
 		if bytes.Compare(cert.Raw, v.Raw) == 0 {
 			shared.LogDebug("Found cert", log.Ctx{"k": k})
@@ -1139,6 +1140,7 @@ func (d *Daemon) CheckTrustState(cert x509.Certificate) bool {
 	}
 
 	members, err := ClusterInfo()
+	shared.LogErrorf("cluster info: %v %v", members, err)
 	if err != nil {
 		// XXX
 		return false

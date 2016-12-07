@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -82,14 +83,35 @@ func (t *LXDTransport) Addr() net.Addr {
 }
 
 func (t *LXDTransport) Dial(address string, timeout time.Duration) (net.Conn, error) {
-	config, err := shared.GetTLSConfig("", "", "", nil)
+	// XXX: TODO: we could figure out the right cert since we have it in
+	// our trust store
+	//config.InsecureSkipVerify = true
+
+	var cert *x509.Certificate
+
+	members, err := ClusterInfo()
+	if err != nil {
+		return nil, fmt.Errorf("can't dial; no cluster db image: %v", err)
+	}
+
+	for _, m := range members {
+		if m.Addr == address {
+			var err error
+
+			cert, err = m.ParseCert()
+			if err != nil {
+				return nil, err
+			}
+
+			break
+		}
+	}
+
+	config, err := shared.GetTLSConfig(shared.VarPath("server.crt"), shared.VarPath("server.key"), "", cert)
 	if err != nil {
 		return nil, err
 	}
 
-	// XXX: TODO: we could figure out the right cert since we have it in
-	// our trust store
-	config.InsecureSkipVerify = true
 
 	dialer := websocket.Dialer{
 		TLSClientConfig: config,
@@ -198,7 +220,7 @@ func clusterConnectGet(d *Daemon, r *http.Request) Response {
 }
 
 // XXX: client code should (?) already coordinate this
-var clusterConnectCmd = Command{name: "cluster/connect", get: clusterConnectGet, untrustedGet: true}
+var clusterConnectCmd = Command{name: "cluster/connect", get: clusterConnectGet}
 
 // /1.0/cluster
 func clusterGet(d *Daemon, r *http.Request) Response {
@@ -387,9 +409,7 @@ func clusterDbQuery(q string) (*rqdb.Rows, error) {
 		return nil, fmt.Errorf("cluster db not initialized")
 	}
 
-	// XXX: Strong here will be Very Slow; we should probably use Weak, but
-	// then we need to do some additional handling and redirecting.
-	result, err := store.Query([]string{q}, false, true, rqstore.Strong)
+	result, err := store.Query([]string{q}, false, true, rqstore.None)
 	if err != nil {
 		return nil, err
 	}
