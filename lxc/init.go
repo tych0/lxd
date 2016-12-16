@@ -60,10 +60,11 @@ func (f *profileList) Set(value string) error {
 var initRequestedEmptyProfiles bool
 
 type initCmd struct {
-	profArgs profileList
-	confArgs configList
-	ephem    bool
-	network  string
+	profArgs      profileList
+	confArgs      configList
+	ephem         bool
+	network       string
+	clusterTarget string
 }
 
 func (c *initCmd) showByDefault() bool {
@@ -74,7 +75,7 @@ func (c *initCmd) usage() string {
 	return i18n.G(
 		`Initialize a container from a particular image.
 
-lxc init [<remote>:]<image> [<remote>:][<name>] [--ephemeral|-e] [--profile|-p <profile>...] [--config|-c <key=value>...] [--network|-n <network>]
+lxc init [<remote>:]<image> [<remote>:][<name>] [--ephemeral|-e] [--profile|-p <profile>...] [--config|-c <key=value>...] [--network|-n <network>] [--target|-t <name>]
 
 Initializes a container using the specified image and name.
 
@@ -141,6 +142,8 @@ func (c *initCmd) flags() {
 	gnuflag.BoolVar(&c.ephem, "e", false, i18n.G("Ephemeral container"))
 	gnuflag.StringVar(&c.network, "network", "", i18n.G("Network name"))
 	gnuflag.StringVar(&c.network, "n", "", i18n.G("Network name"))
+	gnuflag.StringVar(&c.clusterTarget, "target", "", i18n.G("Target member in cluster"))
+	gnuflag.StringVar(&c.clusterTarget, "t", "", i18n.G("Target member in cluster"))
 }
 
 func (c *initCmd) run(config *lxd.Config, args []string) error {
@@ -198,9 +201,9 @@ func (c *initCmd) run(config *lxd.Config, args []string) error {
 	}
 
 	if !initRequestedEmptyProfiles && len(profiles) == 0 {
-		resp, err = d.Init(name, iremote, image, nil, configMap, devicesMap, c.ephem)
+		resp, err = d.Init(name, iremote, image, nil, configMap, devicesMap, c.ephem, c.clusterTarget)
 	} else {
-		resp, err = d.Init(name, iremote, image, &profiles, configMap, devicesMap, c.ephem)
+		resp, err = d.Init(name, iremote, image, &profiles, configMap, devicesMap, c.ephem, c.clusterTarget)
 	}
 	if err != nil {
 		return err

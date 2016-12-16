@@ -25,6 +25,7 @@ const (
 	operationClassTask      operationClass = 1
 	operationClassWebsocket operationClass = 2
 	operationClassToken     operationClass = 3
+	operationClassProxy     operationClass = 4
 )
 
 func (t operationClass) String() string {
@@ -32,6 +33,7 @@ func (t operationClass) String() string {
 		operationClassTask:      "task",
 		operationClassWebsocket: "websocket",
 		operationClassToken:     "token",
+		operationClassProxy:     "proxy",
 	}[t]
 }
 

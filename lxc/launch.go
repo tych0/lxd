@@ -86,9 +86,9 @@ func (c *launchCmd) run(config *lxd.Config, args []string) error {
 	}
 
 	if !initRequestedEmptyProfiles && len(profiles) == 0 {
-		resp, err = d.Init(name, iremote, image, nil, configMap, devicesMap, c.init.ephem)
+		resp, err = d.Init(name, iremote, image, nil, configMap, devicesMap, c.init.ephem, c.init.clusterTarget)
 	} else {
-		resp, err = d.Init(name, iremote, image, &profiles, configMap, devicesMap, c.init.ephem)
+		resp, err = d.Init(name, iremote, image, &profiles, configMap, devicesMap, c.init.ephem, c.init.clusterTarget)
 	}
 
 	if err != nil {

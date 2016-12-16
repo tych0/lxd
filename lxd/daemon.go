@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net"
 	"net/http"
 	"net/url"
@@ -1386,6 +1387,133 @@ type lxdHttpServer struct {
 	d *Daemon
 }
 
+func shouldProxyURI(uri string) bool {
+	prefixes := []string{
+		"/1.0/networks",
+		"/1.0/storage-pools",
+		"/1.0/profiles",
+	}
+
+	for _, p := range prefixes {
+		if strings.HasPrefix(uri, p) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func operationProxy(c *lxd.Client, op string) Response {
+	opDone := make(chan bool)
+
+	runner := func(me *operation) error {
+		defer func() {
+			opDone <- true
+		}()
+
+		other, err := c.WaitFor(op)
+		if err != nil {
+			return err
+		}
+
+		var arg map[string]interface{}
+		if other.Metadata != nil {
+			arg = (map[string]interface{})(other.Metadata)
+		}
+
+		err = me.UpdateMetadata(arg)
+		if err != nil {
+			return err
+		}
+
+		if other.StatusCode == api.Success {
+			return nil
+		}
+
+		return fmt.Errorf(other.Err)
+	}
+
+	other, err := c.OperationInfo(op)
+	if err != nil {
+		return InternalError(err)
+	}
+
+	resources := map[string][]string{}
+	for k, vs := range other.Resources {
+		newVs := []string{}
+		for _, v := range vs {
+			newVs = append(newVs, strings.TrimPrefix(v, fmt.Sprintf("/1.0/%s/", k)))
+		}
+
+		resources[k] = newVs
+	}
+
+	/* TODO: forward websocket requests (?) */
+	oper, err := operationCreate(operationClassProxy, resources, nil, runner, nil, nil)
+	if err != nil {
+		return InternalError(err)
+	}
+
+	go func() {
+		handler := func(msg interface{}) {
+			event := msg.(map[string]interface{})
+			if event["type"].(string) != "operation" {
+				return
+			}
+
+			if event["metadata"] == nil {
+				return
+			}
+
+			md := event["metadata"].(map[string]interface{})
+			if !strings.HasSuffix(other.ID, md["id"].(string)) {
+				return
+			}
+
+			oper.UpdateMetadata(md["metadata"].(map[string]interface{}))
+		}
+		c.Monitor([]string{"operation"}, handler, opDone)
+	}()
+
+
+	return OperationResponse(oper)
+}
+
+func clusterRoute(target *shared.ClusterMember, req *http.Request) Response {
+	path := req.URL.Path + "?" + req.URL.RawQuery
+
+	if req.FormValue("clusterTarget") == "" {
+		path = appendQueryParam(req.URL.Path, "clusterTarget", target.Name)
+	}
+
+	resp, c, err := forwardRequest(target, path, req)
+	if err != nil {
+		return InternalError(err)
+	}
+
+	body, err := NewBytesReadCloser(resp.Body)
+	if err != nil {
+		return InternalError(err)
+	}
+	resp.Body = body
+
+	hoisted, err := lxd.ParseResponse(resp)
+	if err != nil {
+		return InternalError(err)
+	}
+
+	_, err = body.Seek(0, 0)
+	if err != nil {
+		return InternalError(err)
+	}
+
+	if hoisted.Type == api.AsyncResponse {
+		return operationProxy(c, hoisted.Operation)
+	}
+
+	return &rerenderResponse{resp}
+}
+
 func (s *lxdHttpServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	allowedOrigin := daemonConfig["core.https_allowed_origin"].Get()
 	origin := req.Header.Get("Origin")
@@ -1411,6 +1539,123 @@ func (s *lxdHttpServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 	// OPTIONS request don't need any further processing
 	if req.Method == "OPTIONS" {
 		return
+	}
+
+	/* Forward the request to the right cluster target if one was specified. */
+	if ClusterMode() {
+		clusterTarget := req.FormValue("clusterTarget")
+		if clusterTarget == "" {
+			if req.URL.Path == "/1.0/containers" && req.Method == "POST" {
+
+				/* Select a host to route this create request
+				 * too. I think the bikeshed should be a random
+				 * color.
+				 */
+				members := ClusterMembers()
+				target := members[rand.Intn(len(members))]
+				if target.Name != MyClusterName() {
+					resp := clusterRoute(&target, req)
+					resp.Render(rw)
+					return
+				}
+
+				/* just fall through and let it behave like a normal request */
+			} else if req.Method != "GET" && shouldProxyURI(req.URL.Path) {
+
+				body, err := NewBytesReadCloser(req.Body)
+				if err != nil {
+					InternalError(err).Render(rw)
+					return
+				}
+				req.Body = body
+
+				waits := []func() error{}
+				resources := map[string][]string{}
+
+				for _, m := range ClusterMembers() {
+					_, err = body.Seek(0, 0)
+					if err != nil {
+						InternalError(err).Render(rw)
+						return
+					}
+
+					path := appendQueryParam(req.URL.Path, "clusterTarget", m.Name)
+					resp, c, err := forwardRequest(&m, path, req)
+					if err != nil {
+						InternalError(err).Render(rw)
+						return
+					}
+
+					hoisted, err := lxd.ParseResponse(resp)
+					if err != nil {
+						InternalError(err).Render(rw)
+						return
+					}
+
+					if hoisted.Type == api.ErrorResponse {
+						// XXX: we should probably
+						// rerender it exactly here; we
+						// should also try to cancel
+						// whatever operations are
+						// going if we fail here or
+						// below
+						InternalError(fmt.Errorf("cluster op on %s failed: %v", m.Name, hoisted.Error)).Render(rw)
+						return
+					}
+
+					if hoisted.Type == api.AsyncResponse {
+						o, err := hoisted.MetadataAsOperation()
+						if err != nil {
+							InternalError(err).Render(rw)
+							return
+						}
+
+						for k, v := range o.Resources {
+							_, ok := resources[k]
+							if !ok {
+								resources[k] = v
+							} else {
+								resources[k] = append(resources[k], v...)
+							}
+						}
+
+						waits = append(waits, func() error {
+							return c.WaitForSuccess(hoisted.Operation)
+						})
+					}
+				}
+
+				aggregate := func(*operation) error {
+					for _, w := range waits {
+						err := w()
+						if err != nil {
+							return err
+						}
+					}
+
+					return nil
+				}
+
+				op, err := operationCreate(operationClassTask, resources, nil, aggregate, nil, nil)
+				if err != nil {
+					InternalError(err).Render(rw)
+					return
+				}
+
+				OperationResponse(op).Render(rw)
+				return
+			}
+		} else if clusterTarget != MyClusterName() {
+
+			target, err := GetClusterTarget(clusterTarget)
+			if err != nil {
+				InternalError(err).Render(rw)
+				return
+			}
+			resp := clusterRoute(target, req)
+			resp.Render(rw)
+			return
+		}
 	}
 
 	// Call the original server

@@ -1274,7 +1274,7 @@ func (c *Client) GetAlias(alias string) string {
 
 // Init creates a container from either a fingerprint or an alias; you must
 // provide at least one.
-func (c *Client) Init(name string, imgremote string, image string, profiles *[]string, config map[string]string, devices map[string]map[string]string, ephem bool) (*api.Response, error) {
+func (c *Client) Init(name string, imgremote string, image string, profiles *[]string, config map[string]string, devices map[string]map[string]string, ephem bool, clusterTarget string) (*api.Response, error) {
 	if c.Remote.Public {
 		return nil, fmt.Errorf("This function isn't supported by public remotes.")
 	}
@@ -1396,7 +1396,12 @@ func (c *Client) Init(name string, imgremote string, image string, profiles *[]s
 		for _, addr := range addresses {
 			body["source"].(shared.Jmap)["server"] = "https://" + addr
 
-			resp, err = c.post("containers", body, api.AsyncResponse)
+			uri := "containers"
+			if clusterTarget != "" {
+				uri += "?" + url.Values{"clusterTarget": []string{clusterTarget}}.Encode()
+			}
+
+			resp, err = c.post(uri, body, api.AsyncResponse)
 			if err != nil {
 				continue
 			}
@@ -2192,6 +2197,15 @@ func (c *Client) WaitFor(waitURL string) (*api.Operation, error) {
 	 */
 	shared.LogDebugf(path.Join(waitURL[1:], "wait"))
 	resp, err := c.baseGet(c.url(waitURL, "wait"))
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.MetadataAsOperation()
+}
+
+func (c *Client) OperationInfo(uri string) (*api.Operation, error) {
+	resp, err := c.baseGet(c.url(uri))
 	if err != nil {
 		return nil, err
 	}

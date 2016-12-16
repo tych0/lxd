@@ -5,9 +5,11 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -51,6 +53,19 @@ func isNotLeaderErr(err error) bool {
 
 func ClusterMode() bool {
 	return transport != nil
+}
+
+func MyClusterName() string {
+	m, err := peerStore.MemberByAddr(transport.myAddr)
+	if err != nil {
+		return ""
+	}
+
+	return m.Name
+}
+
+func GetClusterTarget(clusterTarget string) (*shared.ClusterMember, error) {
+	return peerStore.MemberByName(clusterTarget)
 }
 
 // LXDTransport basically wraps our websocket API, creating a transport layer
@@ -384,6 +399,15 @@ func (brc bytesReadCloser) Close() error {
 	return nil
 }
 
+func NewBytesReadCloser(r io.Reader) (bytesReadCloser, error) {
+	bodyContent, err := ioutil.ReadAll(r)
+	if err != nil {
+		return bytesReadCloser{}, err
+	}
+
+	return bytesReadCloser{bytes.NewReader(bodyContent)}, nil
+}
+
 type onLeaderHandler struct {
 	getTarget func(d *Daemon, r *http.Request) (*shared.ClusterMember, error)
 	leader    func(d *Daemon, r *http.Request, m *shared.ClusterMember) error
@@ -413,17 +437,18 @@ func connectTo(addr string, serverCert string) (*lxd.Client, error) {
 	})
 }
 
-func forwardRequest(m *shared.ClusterMember, path string, r *http.Request) (*http.Response, error) {
+func forwardRequest(m *shared.ClusterMember, path string, r *http.Request) (*http.Response, *lxd.Client, error) {
 	l, err := connectTo(m.Addr, m.Certificate)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	req, err := http.NewRequest(r.Method, l.BaseURL+path, r.Body)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return l.Http.Do(req)
+	resp, err := l.Http.Do(req)
+	return resp, l, err
 }
 
 func (olh *onLeaderHandler) handle(d *Daemon, r *http.Request) Response {
@@ -454,7 +479,7 @@ func (olh *onLeaderHandler) handle(d *Daemon, r *http.Request) Response {
 	 * actual target.
 	 */
 	if !forwardToLeader && target != nil && target.Addr != transport.myAddr {
-		resp, err := forwardRequest(target, r.URL.Path, r)
+		resp, _, err := forwardRequest(target, r.URL.Path, r)
 		if err != nil {
 			return InternalError(err)
 		}
@@ -474,14 +499,8 @@ func (olh *onLeaderHandler) handle(d *Daemon, r *http.Request) Response {
 			return InternalError(err)
 		}
 
-		path := r.URL.Path
-		if strings.Contains(path, "?") {
-			path += "&forwardToLeader=true"
-		} else {
-			path += "?forwardToLeader=true"
-		}
-
-		resp, err := forwardRequest(leader, path, r)
+		path := appendQueryParam(r.URL.Path, "forwardToLeader", "true")
+		resp, _, err := forwardRequest(leader, path, r)
 		if err != nil {
 			return InternalError(err)
 		}
@@ -656,4 +675,16 @@ func observer() {
 			}
 		}
 	}
+}
+
+func appendQueryParam(oldPath string, key string, value string) string {
+	path := oldPath
+	q := url.Values{key: []string{value}}.Encode()
+	if strings.Contains(path, "?") {
+		path += "&" + q
+	} else {
+		path += "?" + q
+	}
+
+	return path
 }
