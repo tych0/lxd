@@ -2866,3 +2866,25 @@ func (c *Client) ClusterRemove(name string) error {
 	_, err := c.delete("cluster/nodes/"+name, nil, api.SyncResponse)
 	return err
 }
+
+func (c *Client) ClusterDBDump() (io.ReadCloser, error) {
+	if c.Remote.Public {
+		return nil, fmt.Errorf("This function isn't supported by public remotes.")
+	}
+
+	resp, err := c.getRaw(c.url(version.APIVersion, "cluster", "db"))
+	if err != nil {
+		return nil, err
+	}
+
+	return resp.Body, nil
+}
+
+func (c *Client) ClusterDBExecute(qs []string) error {
+	if c.Remote.Public {
+		return fmt.Errorf("This function isn't supported by public remotes.")
+	}
+
+	_, err := c.post("cluster/db", qs, api.SyncResponse)
+	return err
+}

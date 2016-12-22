@@ -688,3 +688,44 @@ func appendQueryParam(oldPath string, key string, value string) string {
 
 	return path
 }
+
+func clusterDBGet(d *Daemon, r *http.Request) Response {
+	data, err := store.Database(false)
+	if err != nil {
+		return InternalError(err)
+	}
+
+	files := []fileResponseEntry{fileResponseEntry{
+		identifier: "dump.sql",
+		filename:   "dump.sql",
+		buffer:     data,
+	}}
+
+	return FileResponse(r, files, nil, false)
+}
+
+var clusterDBPost = onLeaderHandler{
+	leader: func(d *Daemon, r *http.Request, m *shared.ClusterMember) error {
+		qs := []string{}
+
+		err := json.NewDecoder(r.Body).Decode(&qs)
+		if err != nil {
+			return err
+		}
+
+		for _, q := range qs {
+			if strings.HasPrefix(strings.TrimSpace(strings.ToUpper(q)), "select") {
+				return fmt.Errorf("select statements are not allowed via this interface")
+			}
+		}
+
+		_, err = store.Execute(qs, false, true)
+		return err
+	},
+}
+
+var clusterDBCmd = Command{
+	name: "cluster/db",
+	get:  clusterDBGet,
+	post: clusterDBPost.handle,
+}

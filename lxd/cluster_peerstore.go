@@ -101,13 +101,8 @@ func (ps *LXDPeerStore) getMembers() ([]shared.ClusterMember, error) {
 		for _, r := range rows.Values {
 			m := shared.ClusterMember{}
 
-			n := make([]byte, len(r[0].([]byte)))
-			copy(n, r[0].([]byte))
-			a := make([]byte, len(r[1].([]byte)))
-			copy(a, r[1].([]byte))
-
-			m.Name = string(n)
-			m.Addr = string(a)
+			m.Name = r[0].(string)
+			m.Addr = r[1].(string)
 			m.Certificate = r[2].(string)
 			m.Leader = store.Leader() == m.Addr
 

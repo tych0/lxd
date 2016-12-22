@@ -30,6 +30,11 @@ test_clustering() {
     false
   fi
 
+  # test the raw db handling
+  lxc cluster db exec l2 "create table clusterexectest(id integer primary key autoincrement not null);"
+  lxc cluster db dump l2 > "${TEST_DIR}"/dump.sql
+  sqlite3 "${TEST_DIR}"/dump.sql .schema | grep clusterexectest
+
   lxc_remote cluster remove l3 name2
 
   # make sure leave worked

@@ -1475,7 +1475,6 @@ func operationProxy(c *lxd.Client, op string) Response {
 		c.Monitor([]string{"operation"}, handler, opDone)
 	}()
 
-
 	return OperationResponse(oper)
 }
 

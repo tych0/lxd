@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"sort"
 
@@ -22,7 +23,7 @@ func (c *clusterCmd) usage() string {
 	return i18n.G(
 		`Manage LXD clusters.
 
-lxc cluster create host1 host2`)
+lxc cluster enable host1`)
 }
 
 func (c *clusterCmd) flags() {}
@@ -41,6 +42,8 @@ func (c *clusterCmd) run(config *lxd.Config, args []string) error {
 		return c.remove(config, args[1:])
 	case "info":
 		return c.info(config, args[1:])
+	case "db":
+		return c.db(config, args[1:])
 	default:
 		return errArgs
 	}
@@ -189,4 +192,35 @@ func (c *clusterCmd) remove(config *lxd.Config, args []string) error {
 	}
 
 	return client.ClusterRemove(args[1])
+}
+
+func (c *clusterCmd) db(config *lxd.Config, args []string) error {
+	if len(args) < 2 {
+		return errArgs
+	}
+
+	client, err := lxd.NewClient(config, args[1])
+	if err != nil {
+		return err
+	}
+
+	switch args[0] {
+	case "dump":
+		rc, err := client.ClusterDBDump()
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+
+		_, err = io.Copy(os.Stdout, rc)
+		return err
+	case "exec":
+		if len(args) < 3 {
+			return errArgs
+		}
+
+		return client.ClusterDBExecute(args[2:])
+	default:
+		return errArgs
+	}
 }
