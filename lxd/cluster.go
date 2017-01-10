@@ -306,6 +306,12 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 			StopRQLite()
 			return InternalError(err)
 		}
+
+		err = peerStore.RefreshMembers()
+		if err != nil {
+			StopRQLite()
+			return InternalError(err)
+		}
 	}
 
 	return EmptySyncResponse
@@ -667,7 +673,7 @@ func observer() {
 				if err != nil {
 					shared.LogErrorf("error refreshing cluster members: %v", err)
 				}
-			case *raft.RequestVoteRequest:
+			case raft.RequestVoteRequest:
 				/* we don't care about voting */
 				break
 			default:

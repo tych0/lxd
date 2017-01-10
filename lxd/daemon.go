@@ -1470,6 +1470,10 @@ func operationProxy(c *lxd.Client, op string) Response {
 				return
 			}
 
+			if md["metadata"] == nil {
+				return
+			}
+
 			oper.UpdateMetadata(md["metadata"].(map[string]interface{}))
 		}
 		c.Monitor([]string{"operation"}, handler, opDone)
