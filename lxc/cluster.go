@@ -50,37 +50,26 @@ func (c *clusterCmd) run(config *lxd.Config, args []string) error {
 }
 
 func (c *clusterCmd) enable(config *lxd.Config, args []string) error {
-	if len(args) < 1 {
+	if len(args) != 1 {
 		return errArgs
 	}
 
-	remote := "local"
-	if len(args) == 1 {
-		remote = args[0]
-	}
-
-	name := args[len(args)-1]
-
-	client, err := lxd.NewClient(config, remote)
+	client, err := lxd.NewClient(config, args[0])
 	if err != nil {
 		return err
 	}
 
-	return client.ClusterInit(true, name)
+	return client.ClusterInit(true, args[0])
 }
 
 func (c *clusterCmd) add(config *lxd.Config, args []string) error {
-	if len(args) < 2 {
+	if len(args) != 2 {
 		return errArgs
 	}
 
 	cluster := args[0]
-	node := "local"
-	if len(args) == 3 {
-		node = args[1]
-	}
-
-	name := args[len(args)-1]
+	node := args[1]
+	name := args[1]
 
 	cc, err := lxd.NewClient(config, cluster)
 	if err != nil {
