@@ -2823,13 +2823,12 @@ func (c *Client) ClusterInit(leader bool, name string) error {
 		return fmt.Errorf("This function isn't supported by public remotes.")
 	}
 
-	query := url.Values{
-		"leader": []string{fmt.Sprintf("%v", leader)},
-		"name":   []string{name},
+	body := shared.Jmap{
+		"leader": leader,
+		"name":   name,
 	}
-	url := "cluster" + "?" + query.Encode()
 
-	_, err := c.post(url, nil, api.SyncResponse)
+	_, err := c.post("cluster", body, api.SyncResponse)
 	return err
 }
 

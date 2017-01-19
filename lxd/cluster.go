@@ -283,21 +283,29 @@ func clusterGet(d *Daemon, r *http.Request) Response {
 	return SyncResponse(true, ret)
 }
 
+type clusterPostReq struct {
+	Name   string "json:`name`"
+	Leader bool   "json:`leader`"
+}
+
 func clusterPost(d *Daemon, r *http.Request) Response {
 	if transport != nil {
 		return BadRequest(fmt.Errorf("clustering already enabled"))
 	}
 
-	leader := r.FormValue("leader")
-	name := r.FormValue("name")
+	req := clusterPostReq{}
+	err := json.NewDecoder(r.Body).Decode(&req)
+	if err != nil {
+		return BadRequest(err)
+	}
 
-	err := StartRQLite(d, leader == "true")
+	err = StartRQLite(d, req.Leader)
 	if err != nil {
 		return InternalError(err)
 	}
 
-	if leader == "true" {
-		if name == "" {
+	if req.Leader {
+		if req.Name == "" {
 			return BadRequest(fmt.Errorf("must supply a name to the cluster leader"))
 		}
 
@@ -319,7 +327,7 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 			return InternalError(err)
 		}
 
-		me := addMemberStmt(addr, name, string(cert))
+		me := addMemberStmt(addr, req.Name, string(cert))
 
 		result, err := store.Execute([]string{CLUSTER_SCHEMA, enableForeignKeys, me}, false, false)
 		if err != nil {
