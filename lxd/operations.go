@@ -403,6 +403,19 @@ func operationCreate(opClass operationClass, opResources map[string][]string, op
 	operations[op.id] = &op
 	operationsLock.Unlock()
 
+	if ClusterMode() {
+		id, err := MyClusterId()
+		shared.LogErrorf("operation create: my cluster id is %s (%s)", id, err)
+		if err != nil {
+			return nil, err
+		}
+
+		err = clusterDbExecute([]string{fmt.Sprintf("INSERT INTO operations (uuid, cluster_id) VALUES ('%s', '%d')", op.id, id)})
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	shared.LogDebugf("New %s operation: %s", op.class.String(), op.id)
 	_, md, _ := op.Render()
 	eventSend("operation", md)
@@ -423,12 +436,58 @@ func operationGet(id string) (*operation, error) {
 }
 
 // API functions
-func operationAPIGet(d *Daemon, r *http.Request) Response {
+func operationFindOrForward(r *http.Request) (*operation, Response) {
 	id := mux.Vars(r)["id"]
+	shared.LogErrorf("operationFindOrForward %s", id)
 
 	op, err := operationGet(id)
 	if err != nil {
-		return NotFound
+		shared.LogErrorf("operationGet: %s", err)
+		if !ClusterMode() {
+			return nil, NotFound
+		}
+
+		q := fmt.Sprintf("SELECT addr FROM cluster_members JOIN operations ON operations.cluster_id=cluster_members.id WHERE uuid='%s'", id)
+		rows, err := clusterDbQuery(q)
+		shared.LogErrorf("searching for location of operation: err: %s", err)
+		if err != nil {
+			return nil, InternalError(err)
+		}
+
+		addr := ""
+		for _, r := range rows.Values {
+			addr = r[0].(string)
+			break
+		}
+		shared.LogErrorf("searching for location of operation: addr: %s", addr)
+
+		if addr == "" {
+			return nil, NotFound
+		}
+
+		m, err := peerStore.MemberByAddr(addr)
+		shared.LogErrorf("got member: %v", m)
+		if err != nil {
+			return nil, InternalError(err)
+		}
+
+		/* XXX: need to forward query parms, maybe request contents too */
+		resp, _, err := forwardRequest(m, r.URL.Path, r)
+		if err != nil {
+			return nil, InternalError(err)
+		}
+
+		return nil, &rerenderResponse{resp}
+	}
+
+	shared.LogErrorf("%s: found op %s", transport.myAddr, id)
+	return op, nil
+}
+
+func operationAPIGet(d *Daemon, r *http.Request) Response {
+	op, resp := operationFindOrForward(r)
+	if op == nil {
+		return resp
 	}
 
 	_, body, err := op.Render()
@@ -440,14 +499,12 @@ func operationAPIGet(d *Daemon, r *http.Request) Response {
 }
 
 func operationAPIDelete(d *Daemon, r *http.Request) Response {
-	id := mux.Vars(r)["id"]
-
-	op, err := operationGet(id)
-	if err != nil {
-		return NotFound
+	op, resp := operationFindOrForward(r)
+	if op == nil {
+		return resp
 	}
 
-	_, err = op.Cancel()
+	_, err := op.Cancel()
 	if err != nil {
 		return BadRequest(err)
 	}
@@ -498,15 +555,14 @@ func operationsAPIGet(d *Daemon, r *http.Request) Response {
 var operationsCmd = Command{name: "operations", get: operationsAPIGet}
 
 func operationAPIWaitGet(d *Daemon, r *http.Request) Response {
+	op, resp := operationFindOrForward(r)
+	if op == nil {
+		return resp
+	}
+
 	timeout, err := shared.AtoiEmptyDefault(r.FormValue("timeout"), -1)
 	if err != nil {
 		return InternalError(err)
-	}
-
-	id := mux.Vars(r)["id"]
-	op, err := operationGet(id)
-	if err != nil {
-		return NotFound
 	}
 
 	_, err = op.WaitFinal(timeout)
@@ -549,10 +605,10 @@ func (r *operationWebSocket) String() string {
 }
 
 func operationAPIWebsocketGet(d *Daemon, r *http.Request) Response {
-	id := mux.Vars(r)["id"]
-	op, err := operationGet(id)
-	if err != nil {
-		return NotFound
+	/* XXX: does this really work? */
+	op, resp := operationFindOrForward(r)
+	if op == nil {
+		return resp
 	}
 
 	return &operationWebSocket{r, op}

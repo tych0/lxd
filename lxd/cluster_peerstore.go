@@ -9,6 +9,8 @@ import (
 
 	"github.com/lxc/lxd"
 	"github.com/lxc/lxd/shared"
+
+	rqstore "github.com/rqlite/rqlite/store"
 )
 
 type LXDPeerStore struct {
@@ -62,7 +64,12 @@ func (ps *LXDPeerStore) persist() error {
 func (ps *LXDPeerStore) getMembers() ([]shared.ClusterMember, error) {
 	newMembers := []shared.ClusterMember{}
 
-	rows, err := clusterDbQuery("SELECT name, addr, certificate FROM cluster_members")
+	/* We have a special procedure here for when we're not the leader,
+	 * since we might have just joined a cluster, so let's not use
+	 * clusterDbQuery.
+	 */
+	result, err := store.Query([]string{"SELECT name, addr, certificate FROM cluster_members"}, false, true, rqstore.Weak)
+
 	if isNotLeaderErr(err) {
 		var client *lxd.Client
 
@@ -98,6 +105,16 @@ func (ps *LXDPeerStore) getMembers() ([]shared.ClusterMember, error) {
 	} else if err != nil {
 		return nil, err
 	} else {
+		if len(result) != 1 {
+			return nil, fmt.Errorf("wrong number of rows, expected %d", len(result))
+		}
+
+		rows := result[0]
+
+		if rows.Error != "" {
+			return nil, fmt.Errorf(rows.Error)
+		}
+
 		for _, r := range rows.Values {
 			m := shared.ClusterMember{}
 

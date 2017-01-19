@@ -34,6 +34,12 @@ CREATE TABLE IF NOT EXISTS cluster_members (
     UNIQUE (addr),
     UNIQUE (name)
 );
+CREATE TABLE IF NOT EXISTS operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    uuid VARCHAR(255) NOT NULL,
+    cluster_id INTEGER NOT NULL,
+    FOREIGN KEY (cluster_id) REFERENCES cluster_members (id) ON DELETE CASCADE
+);
 `
 
 var (
@@ -58,10 +64,24 @@ func ClusterMode() bool {
 func MyClusterName() string {
 	m, err := peerStore.MemberByAddr(transport.myAddr)
 	if err != nil {
+		shared.LogErrorf("no cluster name for %s", transport.myAddr)
 		return ""
 	}
 
 	return m.Name
+}
+
+func MyClusterId() (int, error) {
+	rows, err := clusterDbQuery(fmt.Sprintf("SELECT id FROM cluster_members WHERE addr='%s'", transport.myAddr))
+	if err != nil {
+		return -1, err
+	}
+
+	for _, r := range rows.Values {
+		return int(r[0].(float64)), nil
+	}
+
+	return -1, fmt.Errorf("my cluster id wasn't found")
 }
 
 func GetClusterTarget(clusterTarget string) (*shared.ClusterMember, error) {
@@ -301,10 +321,17 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 
 		me := addMemberStmt(addr, name, string(cert))
 
-		_, err = store.Execute([]string{CLUSTER_SCHEMA, enableForeignKeys, me}, false, false)
+		result, err := store.Execute([]string{CLUSTER_SCHEMA, enableForeignKeys, me}, false, false)
 		if err != nil {
 			StopRQLite()
 			return InternalError(err)
+		}
+
+		for _, r := range result {
+			if r.Error != "" {
+				StopRQLite()
+				return InternalError(fmt.Errorf(r.Error))
+			}
 		}
 
 		err = peerStore.RefreshMembers()
@@ -607,7 +634,19 @@ func clusterDbQuery(q string) (*rqdb.Rows, error) {
 	}
 
 	result, err := store.Query([]string{q}, false, true, rqstore.Weak)
-	if err != nil {
+	if isNotLeaderErr(err) {
+		leader, err := peerStore.Leader()
+		if err != nil {
+			return nil, err
+		}
+
+		l, err := connectTo(leader.Addr, leader.Certificate)
+		if err != nil {
+			return nil, err
+		}
+
+		return l.ClusterDBQuery(q)
+	} else if err != nil {
 		return nil, err
 	}
 
@@ -616,6 +655,31 @@ func clusterDbQuery(q string) (*rqdb.Rows, error) {
 	}
 
 	return result[0], err
+}
+
+func clusterDbExecute(qs []string) error {
+	results, err := store.Execute(qs, false, true)
+	if isNotLeaderErr(err) {
+		leader, err := peerStore.Leader()
+		if err != nil {
+			return err
+		}
+
+		l, err := connectTo(leader.Addr, leader.Certificate)
+		if err != nil {
+			return err
+		}
+
+		return l.ClusterDBExecute(qs)
+	}
+
+	for _, r := range results {
+		if r.Error != "" {
+			return fmt.Errorf(r.Error)
+		}
+	}
+
+	return err
 }
 
 func ClusterMembers() []shared.ClusterMember {
@@ -696,6 +760,18 @@ func appendQueryParam(oldPath string, key string, value string) string {
 }
 
 func clusterDBGet(d *Daemon, r *http.Request) Response {
+	q := r.FormValue("q")
+
+	/* do a specific query if asked */
+	if q != "" {
+		result, err := store.Query([]string{q}, false, true, rqstore.Weak)
+		if err != nil {
+			return InternalError(err)
+		}
+
+		return SyncResponse(true, result)
+	}
+
 	data, err := store.Database(false)
 	if err != nil {
 		return InternalError(err)
@@ -725,8 +801,18 @@ var clusterDBPost = onLeaderHandler{
 			}
 		}
 
-		_, err = store.Execute(qs, false, true)
-		return err
+		results, err := store.Execute(qs, false, true)
+		if err != nil {
+			return err
+		}
+
+		for _, r := range results {
+			if r.Error != "" {
+				return fmt.Errorf(r.Error)
+			}
+		}
+
+		return nil
 	},
 }
 

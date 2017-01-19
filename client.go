@@ -28,6 +28,8 @@ import (
 	"github.com/lxc/lxd/shared/ioprogress"
 	"github.com/lxc/lxd/shared/simplestreams"
 	"github.com/lxc/lxd/shared/version"
+
+	rqdb "github.com/rqlite/rqlite/db"
 )
 
 // Client can talk to a LXD daemon.
@@ -2887,4 +2889,37 @@ func (c *Client) ClusterDBExecute(qs []string) error {
 
 	_, err := c.post("cluster/db", qs, api.SyncResponse)
 	return err
+}
+
+func (c *Client) ClusterDBQuery(q string) (*rqdb.Rows, error) {
+	if c.Remote.Public {
+		return nil, fmt.Errorf("This function isn't supported by public remotes.")
+	}
+
+	query := url.Values{
+		"q": []string{q},
+	}
+	url := "cluster/db" + "?" + query.Encode()
+
+	r, err := c.get(url)
+	if err != nil {
+		return nil, err
+	}
+
+	rows := []rqdb.Rows{}
+
+	err = json.Unmarshal(r.Metadata, &rows)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(rows) != 1 {
+		return nil, fmt.Errorf("wrong number of results, got %d", len(rows))
+	}
+
+	if rows[0].Error != "" {
+		return nil, fmt.Errorf(rows[0].Error)
+	}
+
+	return &rows[0], nil
 }

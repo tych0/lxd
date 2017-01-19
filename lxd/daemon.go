@@ -1489,8 +1489,10 @@ func clusterRoute(target *shared.ClusterMember, req *http.Request) Response {
 		path = appendQueryParam(req.URL.Path, "clusterTarget", target.Name)
 	}
 
-	resp, c, err := forwardRequest(target, path, req)
+	resp, _, err := forwardRequest(target, path, req)
+	// resp, c, err := forwardRequest(target, path, req)
 	if err != nil {
+		shared.LogErrorf("error in clusterRoute: %s", err)
 		return InternalError(err)
 	}
 
@@ -1500,6 +1502,7 @@ func clusterRoute(target *shared.ClusterMember, req *http.Request) Response {
 	}
 	resp.Body = body
 
+	/*
 	hoisted, err := lxd.ParseResponse(resp)
 	if err != nil {
 		return InternalError(err)
@@ -1513,6 +1516,7 @@ func clusterRoute(target *shared.ClusterMember, req *http.Request) Response {
 	if hoisted.Type == api.AsyncResponse {
 		return operationProxy(c, hoisted.Operation)
 	}
+	*/
 
 	return &rerenderResponse{resp}
 }
@@ -1649,7 +1653,6 @@ func (s *lxdHttpServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 				return
 			}
 		} else if clusterTarget != MyClusterName() {
-
 			target, err := GetClusterTarget(clusterTarget)
 			if err != nil {
 				InternalError(err).Render(rw)
