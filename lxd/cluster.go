@@ -26,7 +26,7 @@ import (
 )
 
 const CLUSTER_SCHEMA string = `
-CREATE TABLE IF NOT EXISTS cluster_members (
+CREATE TABLE IF NOT EXISTS cluster_nodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     addr VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS operations (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     uuid VARCHAR(255) NOT NULL,
     cluster_id INTEGER NOT NULL,
-    FOREIGN KEY (cluster_id) REFERENCES cluster_members (id) ON DELETE CASCADE
+    FOREIGN KEY (cluster_id) REFERENCES cluster_nodes (id) ON DELETE CASCADE
 );
 `
 
@@ -72,7 +72,7 @@ func MyClusterName() string {
 }
 
 func MyClusterId() (int, error) {
-	rows, err := clusterDbQuery(fmt.Sprintf("SELECT id FROM cluster_members WHERE addr='%s'", transport.myAddr))
+	rows, err := clusterDbQuery(fmt.Sprintf("SELECT id FROM cluster_nodes WHERE addr='%s'", transport.myAddr))
 	if err != nil {
 		return -1, err
 	}
@@ -401,7 +401,7 @@ var clusterNodesPost = onLeaderHandler{
 			}
 
 			// XXX: see note elsewhere about prepared statements
-			_, err2 := store.Execute([]string{fmt.Sprintf("DELETE FROM cluster_members WHERE name = '%s'", m.Name)}, false, true)
+			_, err2 := store.Execute([]string{fmt.Sprintf("DELETE FROM cluster_nodes WHERE name = '%s'", m.Name)}, false, true)
 			if err2 != nil {
 				return fmt.Errorf("error deleting node from cluster on failed join: %v: %v", err2, err)
 			}
@@ -593,7 +593,7 @@ var clusterNodeNamePost = onLeaderHandler{
 			return err
 		}
 
-		stmt := fmt.Sprintf("UPDATE cluster_members SET name='%s' WHERE name='%s'", req.Name, oldName)
+		stmt := fmt.Sprintf("UPDATE cluster_nodes SET name='%s' WHERE name='%s'", req.Name, oldName)
 		_, err = store.Execute([]string{stmt}, false, true)
 		return err
 	},
@@ -604,7 +604,7 @@ var clusterNodeNameDelete = onLeaderHandler{
 		return peerStore.MemberByName(mux.Vars(r)["name"])
 	},
 	leader: func(d *Daemon, r *http.Request, m *shared.ClusterMember) error {
-		_, err := store.Execute([]string{fmt.Sprintf("DELETE FROM cluster_members WHERE name = '%s'", m.Name)}, false, true)
+		_, err := store.Execute([]string{fmt.Sprintf("DELETE FROM cluster_nodes WHERE name = '%s'", m.Name)}, false, true)
 		if err != nil {
 			shared.LogErrorf("Failed removing %s from cluster members: %v", m.Name, err)
 		}
@@ -693,7 +693,7 @@ func addMemberStmt(addr, name, certificate string) string {
 	// XXX: this could be sql injected. unfortunately rqlite
 	// doesn't support prepared statements:
 	// https://github.com/rqlite/rqlite/issues/140
-	return fmt.Sprintf("INSERT INTO cluster_members (addr, name, certificate) values ('%s', '%s', '%s')", addr, name, certificate)
+	return fmt.Sprintf("INSERT INTO cluster_nodes (addr, name, certificate) values ('%s', '%s', '%s')", addr, name, certificate)
 }
 
 func observer() {

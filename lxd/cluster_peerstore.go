@@ -68,7 +68,7 @@ func (ps *LXDPeerStore) getMembers() ([]shared.ClusterMember, error) {
 	 * since we might have just joined a cluster, so let's not use
 	 * clusterDbQuery.
 	 */
-	result, err := store.Query([]string{"SELECT name, addr, certificate FROM cluster_members"}, false, true, rqstore.Weak)
+	result, err := store.Query([]string{"SELECT name, addr, certificate FROM cluster_nodes"}, false, true, rqstore.Weak)
 
 	if isNotLeaderErr(err) {
 		var client *lxd.Client

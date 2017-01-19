@@ -447,7 +447,7 @@ func operationFindOrForward(r *http.Request) (*operation, Response) {
 			return nil, NotFound
 		}
 
-		q := fmt.Sprintf("SELECT addr FROM cluster_members JOIN operations ON operations.cluster_id=cluster_members.id WHERE uuid='%s'", id)
+		q := fmt.Sprintf("SELECT addr FROM cluster_nodes JOIN operations ON operations.cluster_id=cluster_nodes.id WHERE uuid='%s'", id)
 		rows, err := clusterDbQuery(q)
 		shared.LogErrorf("searching for location of operation: err: %s", err)
 		if err != nil {
