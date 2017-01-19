@@ -85,6 +85,13 @@ func (op *operation) done() {
 		delete(operations, op.id)
 		operationsLock.Unlock()
 
+		if ClusterMode() {
+			err := clusterDbExecute([]string{fmt.Sprintf("DELETE FROM operations WHERE uuid='%s'", op.id)})
+			if err != nil {
+				shared.LogErrorf("failed to remove operation %s from cluster db: %s", op.id, err)
+			}
+		}
+
 		/*
 		 * When we create a new lxc.Container, it adds a finalizer (via
 		 * SetFinalizer) that frees the struct. However, it sometimes
@@ -405,7 +412,6 @@ func operationCreate(opClass operationClass, opResources map[string][]string, op
 
 	if ClusterMode() {
 		id, err := MyClusterId()
-		shared.LogErrorf("operation create: my cluster id is %s (%s)", id, err)
 		if err != nil {
 			return nil, err
 		}
@@ -416,7 +422,6 @@ func operationCreate(opClass operationClass, opResources map[string][]string, op
 		}
 	}
 
-	shared.LogDebugf("New %s operation: %s", op.class.String(), op.id)
 	_, md, _ := op.Render()
 	eventSend("operation", md)
 
@@ -438,18 +443,15 @@ func operationGet(id string) (*operation, error) {
 // API functions
 func operationFindOrForward(r *http.Request) (*operation, Response) {
 	id := mux.Vars(r)["id"]
-	shared.LogErrorf("operationFindOrForward %s", id)
 
 	op, err := operationGet(id)
 	if err != nil {
-		shared.LogErrorf("operationGet: %s", err)
 		if !ClusterMode() {
 			return nil, NotFound
 		}
 
 		q := fmt.Sprintf("SELECT addr FROM cluster_nodes JOIN operations ON operations.cluster_id=cluster_nodes.id WHERE uuid='%s'", id)
 		rows, err := clusterDbQuery(q)
-		shared.LogErrorf("searching for location of operation: err: %s", err)
 		if err != nil {
 			return nil, InternalError(err)
 		}
@@ -459,14 +461,12 @@ func operationFindOrForward(r *http.Request) (*operation, Response) {
 			addr = r[0].(string)
 			break
 		}
-		shared.LogErrorf("searching for location of operation: addr: %s", addr)
 
 		if addr == "" {
 			return nil, NotFound
 		}
 
 		m, err := peerStore.MemberByAddr(addr)
-		shared.LogErrorf("got member: %v", m)
 		if err != nil {
 			return nil, InternalError(err)
 		}
@@ -480,7 +480,6 @@ func operationFindOrForward(r *http.Request) (*operation, Response) {
 		return nil, &rerenderResponse{resp}
 	}
 
-	shared.LogErrorf("%s: found op %s", transport.myAddr, id)
 	return op, nil
 }
 
