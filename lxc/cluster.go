@@ -204,11 +204,12 @@ func (c *clusterCmd) db(config *lxd.Config, args []string) error {
 		_, err = io.Copy(os.Stdout, rc)
 		return err
 	case "exec":
-		if len(args) < 3 {
+		if len(args) != 3 {
 			return errArgs
 		}
 
-		return client.ClusterDBExecute(args[2:])
+		_, err := client.ClusterDBExecute(args[2])
+		return err
 	default:
 		return errArgs
 	}

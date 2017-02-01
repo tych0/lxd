@@ -25,23 +25,6 @@ import (
 	rqstore "github.com/rqlite/rqlite/store"
 )
 
-const CLUSTER_SCHEMA string = `
-CREATE TABLE IF NOT EXISTS cluster_nodes (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-    addr VARCHAR(255) NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    certificate TEXT NOT NULL,
-    UNIQUE (addr),
-    UNIQUE (name)
-);
-CREATE TABLE IF NOT EXISTS operations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
-    uuid VARCHAR(255) NOT NULL,
-    cluster_id INTEGER NOT NULL,
-    FOREIGN KEY (cluster_id) REFERENCES cluster_nodes (id) ON DELETE CASCADE
-);
-`
-
 var (
 	transport   *LXDTransport
 	peerStore   *LXDPeerStore
@@ -329,7 +312,7 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 
 		me := addMemberStmt(addr, req.Name, string(cert))
 
-		result, err := store.Execute([]string{CLUSTER_SCHEMA, enableForeignKeys, me}, false, false)
+		result, err := store.Execute([]string{CURRENT_SCHEMA, enableForeignKeys, me}, false, false)
 		if err != nil {
 			StopRQLite()
 			return InternalError(err)
@@ -665,8 +648,8 @@ func clusterDbQuery(q string) (*rqdb.Rows, error) {
 	return result[0], err
 }
 
-func clusterDbExecute(qs []string) error {
-	results, err := store.Execute(qs, false, true)
+func clusterDbExecute(q string) error {
+	results, err := store.Execute([]string{q}, false, true)
 	if isNotLeaderErr(err) {
 		leader, err := peerStore.Leader()
 		if err != nil {
@@ -678,7 +661,8 @@ func clusterDbExecute(qs []string) error {
 			return err
 		}
 
-		return l.ClusterDBExecute(qs)
+		_, err = l.ClusterDBExecute(q)
+		return err
 	}
 
 	for _, r := range results {
@@ -777,7 +761,15 @@ func clusterDBGet(d *Daemon, r *http.Request) Response {
 			return InternalError(err)
 		}
 
-		return SyncResponse(true, result)
+		if len(result) != 1 {
+			return InternalError(fmt.Errorf("wrong number of results, got %d", len(result)))
+		}
+
+		if result[0].Error != "" {
+			return InternalError(fmt.Errorf(result[0].Error))
+		}
+
+		return SyncResponse(true, result[0])
 	}
 
 	data, err := store.Database(false)
@@ -794,6 +786,27 @@ func clusterDBGet(d *Daemon, r *http.Request) Response {
 	return FileResponse(r, files, nil, false)
 }
 
+func clusterDBPost(d *Daemon, r *http.Request) Response {
+	q := ""
+
+	err := json.NewDecoder(r.Body).Decode(&q)
+	if err != nil {
+		return BadRequest(err)
+	}
+
+	results, err := store.Execute([]string{q}, false, true)
+	if err != nil {
+		return InternalError(err)
+	}
+
+	if len(results) != 1 {
+		return InternalError(fmt.Errorf("unexpected number of results %d", len(results)))
+	}
+
+	return SyncResponse(true, results[0])
+}
+
+/*
 var clusterDBPost = onLeaderHandler{
 	leader: func(d *Daemon, r *http.Request, m *shared.ClusterMember) error {
 		qs := []string{}
@@ -823,9 +836,10 @@ var clusterDBPost = onLeaderHandler{
 		return nil
 	},
 }
+*/
 
 var clusterDBCmd = Command{
 	name: "cluster/db",
 	get:  clusterDBGet,
-	post: clusterDBPost.handle,
+	post: clusterDBPost,
 }

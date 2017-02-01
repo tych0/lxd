@@ -54,7 +54,9 @@ CREATE TABLE IF NOT EXISTS containers (
     stateful INTEGER NOT NULL DEFAULT 0,
     creation_date DATETIME,
     last_use_date DATETIME,
+    cluster_id INTEGER NOT NULL,
     UNIQUE (name)
+    FOREIGN KEY (cluster_id) REFERENCES cluster_nodes (id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS containers_config (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -102,7 +104,9 @@ CREATE TABLE IF NOT EXISTS images (
     expiry_date DATETIME,
     upload_date DATETIME NOT NULL,
     last_use_date DATETIME,
+    cluster_id INTEGER NOT NULL,
     UNIQUE (fingerprint)
+    FOREIGN KEY (cluster_id) REFERENCES cluster_nodes (id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS images_aliases (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -132,7 +136,9 @@ CREATE TABLE IF NOT EXISTS images_source (
 CREATE TABLE IF NOT EXISTS networks (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     name VARCHAR(255) NOT NULL,
+    cluster_id INTEGER NOT NULL,
     UNIQUE (name)
+    FOREIGN KEY (cluster_id) REFERENCES cluster_nodes (id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS networks_config (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
@@ -183,7 +189,22 @@ CREATE TABLE IF NOT EXISTS schema (
     version INTEGER NOT NULL,
     updated_at DATETIME NOT NULL,
     UNIQUE (version)
-);`
+);
+CREATE TABLE IF NOT EXISTS cluster_nodes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    addr VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    certificate TEXT NOT NULL,
+    UNIQUE (addr),
+    UNIQUE (name)
+);
+CREATE TABLE IF NOT EXISTS operations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+    uuid VARCHAR(255) NOT NULL,
+    cluster_id INTEGER NOT NULL,
+    FOREIGN KEY (cluster_id) REFERENCES cluster_nodes (id) ON DELETE CASCADE
+);
+`
 
 // Create the initial (current) schema for a given SQLite DB connection.
 func createDb(db *sql.DB) (err error) {

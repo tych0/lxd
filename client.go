@@ -2881,13 +2881,27 @@ func (c *Client) ClusterDBDump() (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
-func (c *Client) ClusterDBExecute(qs []string) error {
+func (c *Client) ClusterDBExecute(q string) (*rqdb.Result, error) {
 	if c.Remote.Public {
-		return fmt.Errorf("This function isn't supported by public remotes.")
+		return nil, fmt.Errorf("This function isn't supported by public remotes.")
 	}
 
-	_, err := c.post("cluster/db", qs, api.SyncResponse)
-	return err
+	r, err := c.post("cluster/db", q, api.SyncResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	result := rqdb.Result{}
+	err = json.Unmarshal(r.Metadata, &result)
+	if err != nil {
+		return nil, err
+	}
+
+	if result.Error != "" {
+		return nil, fmt.Errorf(result.Error)
+	}
+
+	return &result, nil
 }
 
 func (c *Client) ClusterDBQuery(q string) (*rqdb.Rows, error) {
@@ -2905,20 +2919,15 @@ func (c *Client) ClusterDBQuery(q string) (*rqdb.Rows, error) {
 		return nil, err
 	}
 
-	rows := []rqdb.Rows{}
-
+	rows := rqdb.Rows{}
 	err = json.Unmarshal(r.Metadata, &rows)
 	if err != nil {
 		return nil, err
 	}
 
-	if len(rows) != 1 {
-		return nil, fmt.Errorf("wrong number of results, got %d", len(rows))
+	if rows.Error != "" {
+		return nil, fmt.Errorf(rows.Error)
 	}
 
-	if rows[0].Error != "" {
-		return nil, fmt.Errorf(rows[0].Error)
-	}
-
-	return &rows[0], nil
+	return &rows, nil
 }

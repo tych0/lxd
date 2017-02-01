@@ -86,7 +86,7 @@ func (op *operation) done() {
 		operationsLock.Unlock()
 
 		if ClusterMode() {
-			err := clusterDbExecute([]string{fmt.Sprintf("DELETE FROM operations WHERE uuid='%s'", op.id)})
+			err := clusterDbExecute(fmt.Sprintf("DELETE FROM operations WHERE uuid='%s'", op.id))
 			if err != nil {
 				shared.LogErrorf("failed to remove operation %s from cluster db: %s", op.id, err)
 			}
@@ -416,7 +416,7 @@ func operationCreate(opClass operationClass, opResources map[string][]string, op
 			return nil, err
 		}
 
-		err = clusterDbExecute([]string{fmt.Sprintf("INSERT INTO operations (uuid, cluster_id) VALUES ('%s', '%d')", op.id, id)})
+		err = clusterDbExecute(fmt.Sprintf("INSERT INTO operations (uuid, cluster_id) VALUES ('%s', '%d')", op.id, id))
 		if err != nil {
 			return nil, err
 		}
