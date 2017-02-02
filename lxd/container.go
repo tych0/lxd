@@ -309,7 +309,8 @@ func containerValidDevices(devices types.Devices, profile bool, expanded bool) e
 // The container arguments
 type containerArgs struct {
 	// Don't set manually
-	Id int
+	Id        int
+	ClusterId int
 
 	Architecture int
 	BaseImage    string

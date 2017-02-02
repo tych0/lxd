@@ -68,6 +68,15 @@ func MyClusterId() (int, error) {
 	return -1, fmt.Errorf("my cluster id wasn't found")
 }
 
+func SQLClusterId() interface{} {
+	id, err := MyClusterId()
+	if err != nil {
+		return nil
+	}
+
+	return id
+}
+
 func GetClusterTarget(clusterTarget string) (*shared.ClusterMember, error) {
 	return peerStore.MemberByName(clusterTarget)
 }
@@ -272,8 +281,10 @@ func clusterGet(d *Daemon, r *http.Request) Response {
 }
 
 type clusterPostReq struct {
-	Name   string "json:`name`"
-	Leader bool   "json:`leader`"
+	Name        string "json:`name`"
+	Leader      string "json:`leader`"
+	Password    string "json:`password`"
+	Certificate string "json:`certificate`"
 }
 
 func clusterPost(d *Daemon, r *http.Request) Response {
@@ -287,15 +298,22 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 		return BadRequest(err)
 	}
 
-	if req.Leader && req.Name == "" {
-		return BadRequest(fmt.Errorf("must supply a name to the cluster leader"))
+	if req.Name == "" {
+		return BadRequest("must supply a cluster name")
 	}
 
-	err = StartRQLite(d, req.Leader)
-	if err != nil {
-		return InternalError(err)
+	if req.Leader != "" && req.Certificate == "" || req.Password == "" {
+		return BadRequest(fmt.Errorf("must supply a password and certificate when supplying a leader"))
 	}
 
+	run := func(*operation) error {
+		d.TCPSocket.Socket.Close()
+
+		err = StartRQLite(d, req.Leader == "")
+		if err != nil {
+			return InternalError(err)
+		}
+	}
 
 	if req.Leader {
 		_, err = store.WaitForLeader(5 * time.Second)
@@ -394,70 +412,73 @@ func clusterNodesGet(d *Daemon, r *http.Request) Response {
 	return SyncResponse(true, shared.ClusterStatus{peerStore.members})
 }
 
-var clusterNodesPost = onLeaderHandler{
-	leader: func(d *Daemon, r *http.Request, target *shared.ClusterMember) error {
-		m := shared.ClusterMember{}
+func dbAddMember(db *sql.DB) error {
+	_, err := db.Exec("INSERT INTO cluster_nodes (addr, name) VALUES (?, ?)", addr, name)
+	return err
+}
 
-		err := json.NewDecoder(r.Body).Decode(&m)
-		if err != nil {
-			return err
-		}
+func clusterNodesPost(d *Daemon, r *http.Request) Response {
+	m := map[string]string{}
 
-		/* The order here is important: when the next leader election
-		 * happens, we need to have this row in the database so that
-		 * people can get the new cluster state when the new leader
-		 * election happens.
-		 */
-		_, err = store.Execute([]string{addMemberStmt(m.Addr, m.Name, m.Certificate)}, false, true)
-		if err != nil {
-			shared.LogErrorf("failed adding new member: %s", err)
-			return err
-		}
+	err := json.NewDecoder(r.Body).Decode(&m)
+	if err != nil {
+		return BadRequest(err)
+	}
 
-		/* Manually adjust the member list to include this one so we
-		 * remember it's certificate and connect to it.
-		 */
-		err = peerStore.AddPeer(m)
-		if err != nil {
-			return err
-		}
+	if m["password"] != daemonConfig["core.trust_password"].Get() {
+		return Forbidden
+	}
 
-		err = store.Join(m.Addr)
-		if err != nil {
-			// manually un-adjust the member list
-			newMembers := []shared.ClusterMember{}
-			for _, om := range members {
-				if m.Addr != om.Addr {
-					newMembers = append(newMembers, om)
-				}
-			}
+	cert, err := ioutil.ReadFile(shared.VarPath("server.crt"))
+	if err != nil {
+		return InternalError(err)
+	}
 
-			err = peerStore.SetMembers(newMembers)
+	key, err := ioutil.ReadFile(shared.VarPath("server.key"))
+	if err != nil {
+		return InternalError(err)
+	}
+
+	md := map[string]string{
+		"certificate": cert,
+		"key": key,
+	}
+
+	run := func(*operation) error {
+		var err error
+		for i := 0; i < 5; i++ {
+			/* give this server some time to switch its cert */
+			err = store.Join(m.Addr)
 			if err != nil {
-				shared.LogErrorf("error adjusting to old members")
+				time.Sleep(1 * time.Second)
+				continue
 			}
 
-			// XXX: see note elsewhere about prepared statements
-			_, err2 := store.Execute([]string{fmt.Sprintf("DELETE FROM cluster_nodes WHERE name = '%s'", m.Name)}, false, true)
-			if err2 != nil {
-				return fmt.Errorf("error deleting node from cluster on failed join: %v: %v", err2, err)
-			}
-			return err
+			break
 		}
 
-		_, err = store.WaitForLeader(100 * time.Second)
 		if err != nil {
-			return err
+			err = dbAddMember(d.db)
+			if err != nil {
+				return err
+			}
 		}
 
-		return nil
-	},
+		return err
+	}
+
+	op, err := operationCreate(operationClassTask, resources, md, run, nil, nil)
+	if err != nil {
+		return InternalError(err)
+	}
+
+	return OperationResponse(op)
 }
 
 var clusterNodesCmd = Command{
 	name: "cluster/nodes",
 	get:  clusterNodesGet,
-	post: clusterNodesPost.handle,
+	post: clusterNodesPost,
 }
 
 type bytesReadCloser struct {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
 	"net/http"
 	"runtime"
@@ -86,7 +87,14 @@ func (op *operation) done() {
 		operationsLock.Unlock()
 
 		if ClusterMode() {
-			err := clusterDbExecute(fmt.Sprintf("DELETE FROM operations WHERE uuid='%s'", op.id))
+			db, err := sql.Open("lxdrqlite", "unused")
+			if err != nil {
+				shared.LogErrorf("failed to open cluster db %s", err)
+				return
+			}
+			defer db.Close()
+
+			_, err = db.Exec("DELETE FROM operations WHERE uuid=?", op.id)
 			if err != nil {
 				shared.LogErrorf("failed to remove operation %s from cluster db: %s", op.id, err)
 			}
@@ -416,7 +424,13 @@ func operationCreate(opClass operationClass, opResources map[string][]string, op
 			return nil, err
 		}
 
-		err = clusterDbExecute(fmt.Sprintf("INSERT INTO operations (uuid, cluster_id) VALUES ('%s', '%d')", op.id, id))
+		db, err := sql.Open("lxdrqlite", "unused")
+		if err != nil {
+			return nil, err
+		}
+		defer db.Close()
+
+		_, err = db.Exec("INSERT INTO operations (uuid, cluster_id) VALUES (?, ?)", op.id, id)
 		if err != nil {
 			return nil, err
 		}

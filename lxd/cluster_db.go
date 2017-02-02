@@ -10,6 +10,8 @@ import (
 
 	rqdb "github.com/rqlite/rqlite/db"
 	rqstore "github.com/rqlite/rqlite/store"
+
+	"github.com/lxc/lxd/shared"
 )
 
 func init() {
@@ -91,7 +93,7 @@ func (s *RqliteStmt) Exec(args []driver.Value) (driver.Result, error) {
 		case bool:
 			r = fmt.Sprintf("%v", v)
 		case time.Time:
-			r = fmt.Sprintf("%v", v)
+			r = fmt.Sprintf(`'%v'`, v)
 		case []byte:
 			r = fmt.Sprintf(`'%s'`, v)
 		case string:
@@ -102,7 +104,12 @@ func (s *RqliteStmt) Exec(args []driver.Value) (driver.Result, error) {
 		rendered = append(rendered, r)
 	}
 
-	q := fmt.Sprintf(strings.Replace(s.q, "?", "%s", -1), rendered...)
+	shared.LogDebugf("preparing rqlite stmt: %s", s.q)
+	q := s.q
+	q = strings.Replace(q, "%", "%%", -1)
+	q = strings.Replace(q, "?", "%s", -1)
+	q = fmt.Sprintf(q, rendered...)
+	shared.LogDebugf("running rqlite stmt: %s", q)
 
 	results, err := store.Execute([]string{q}, false, false)
 	if isNotLeaderErr(err) {

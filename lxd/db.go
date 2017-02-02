@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS containers (
     stateful INTEGER NOT NULL DEFAULT 0,
     creation_date DATETIME,
     last_use_date DATETIME,
-    cluster_id INTEGER NOT NULL,
+    cluster_id INTEGER,
     UNIQUE (name)
     FOREIGN KEY (cluster_id) REFERENCES cluster_nodes (id) ON DELETE CASCADE
 );
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS images (
     expiry_date DATETIME,
     upload_date DATETIME NOT NULL,
     last_use_date DATETIME,
-    cluster_id INTEGER NOT NULL,
+    cluster_id INTEGER,
     UNIQUE (fingerprint)
     FOREIGN KEY (cluster_id) REFERENCES cluster_nodes (id) ON DELETE CASCADE
 );
@@ -136,17 +136,17 @@ CREATE TABLE IF NOT EXISTS images_source (
 CREATE TABLE IF NOT EXISTS networks (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     name VARCHAR(255) NOT NULL,
-    cluster_id INTEGER NOT NULL,
     UNIQUE (name)
-    FOREIGN KEY (cluster_id) REFERENCES cluster_nodes (id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS networks_config (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     network_id INTEGER NOT NULL,
     key VARCHAR(255) NOT NULL,
     value TEXT,
+    cluster_id INTEGER,
     UNIQUE (network_id, key),
     FOREIGN KEY (network_id) REFERENCES networks (id) ON DELETE CASCADE
+    FOREIGN KEY (cluster_id) REFERENCES cluster_nodes (id) ON DELETE CASCADE
 );
 CREATE TABLE IF NOT EXISTS patches (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,

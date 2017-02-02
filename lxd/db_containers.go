@@ -70,9 +70,9 @@ func dbContainerGet(db *sql.DB, name string) (containerArgs, error) {
 
 	ephemInt := -1
 	statefulInt := -1
-	q := "SELECT id, architecture, type, ephemeral, stateful, creation_date, last_use_date FROM containers WHERE name=?"
+	q := "SELECT id, architecture, type, ephemeral, stateful, creation_date, last_use_date, cluster_id FROM containers WHERE name=?"
 	arg1 := []interface{}{name}
-	arg2 := []interface{}{&args.Id, &args.Architecture, &args.Ctype, &ephemInt, &statefulInt, &args.CreationDate, &used}
+	arg2 := []interface{}{&args.Id, &args.Architecture, &args.Ctype, &ephemInt, &statefulInt, &args.CreationDate, &used, &args.ClusterId}
 	err := dbQueryRowScan(db, q, arg1, arg2)
 	if err != nil {
 		return args, err
@@ -146,14 +146,14 @@ func dbContainerCreate(db *sql.DB, args containerArgs) (int, error) {
 	args.CreationDate = time.Now().UTC()
 	args.LastUsedDate = time.Unix(0, 0).UTC()
 
-	str := fmt.Sprintf("INSERT INTO containers (name, architecture, type, ephemeral, creation_date, last_use_date, stateful) VALUES (?, ?, ?, ?, ?, ?, ?)")
+	str := fmt.Sprintf("INSERT INTO containers (name, architecture, type, ephemeral, creation_date, last_use_date, stateful, cluster_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
 	stmt, err := tx.Prepare(str)
 	if err != nil {
 		tx.Rollback()
 		return 0, err
 	}
 	defer stmt.Close()
-	result, err := stmt.Exec(args.Name, args.Architecture, args.Ctype, ephemInt, args.CreationDate.Unix(), args.LastUsedDate.Unix(), statefulInt)
+	result, err := stmt.Exec(args.Name, args.Architecture, args.Ctype, ephemInt, args.CreationDate.Unix(), args.LastUsedDate.Unix(), statefulInt, )
 	if err != nil {
 		tx.Rollback()
 		return 0, err

@@ -2818,29 +2818,46 @@ func (c *Client) ListNetworks() ([]api.Network, error) {
 	return networks, nil
 }
 
-func (c *Client) ClusterInit(leader bool, name string) error {
+func (c *Client) ClusterInit(name string, leader string, password string, cert string) (*api.Operation, error) {
 	if c.Remote.Public {
 		return fmt.Errorf("This function isn't supported by public remotes.")
 	}
 
 	body := shared.Jmap{
-		"leader": leader,
-		"name":   name,
+		"leader":      leader,
+		"name":        name,
+		"password":    password,
+		"certificate": cert,
 	}
 
-	_, err := c.post("cluster", body, api.SyncResponse)
+	_, err := c.post("cluster", body, api.AsyncResponse)
 	return err
 }
 
-func (c *Client) ClusterAdd(m shared.ClusterMember) error {
+func (c *Client) ClusterAdd(name string, addr string, password string) (string, string, *api.Operation, error) {
 	if c.Remote.Public {
-		return fmt.Errorf("This function isn't supported by public remotes.")
+		return "", "", fmt.Errorf("This function isn't supported by public remotes.")
 	}
 
 	url := "cluster/nodes"
 
-	_, err := c.post(url, m, api.SyncResponse)
-	return err
+	body := map[string]string{
+		"name":     name,
+		"addr":     addr,
+		"password": password,
+	}
+
+	resp, err := c.post(url, body, api.AsyncResponse)
+	if err != nil {
+		return "", "", err
+	}
+
+	op, err = resp.MetadataAsOperation()
+	if err != nil {
+		return "", "", err
+	}
+
+	return op.Metadata.Certificate.(string), op.Metadata.Key.(string), op, nil
 }
 
 func (c *Client) ClusterInfo() (*shared.ClusterStatus, error) {
