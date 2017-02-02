@@ -126,7 +126,7 @@ func (c *clusterCmd) add(config *lxd.Config, args []string) error {
 		return err
 	}
 
-	if certAdded {
+	if false && certAdded {
 		err = nc.CertificateRemove(cStatus.Environment.CertificateFingerprint)
 		if err != nil {
 			return err

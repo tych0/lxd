@@ -71,6 +71,7 @@ type Daemon struct {
 	BackingFs           string
 	clientCerts         []x509.Certificate
 	db                  *sql.DB
+	localDB		    *sql.DB
 	group               string
 	IdmapSet            *shared.IdmapSet
 	lxcpath             string
@@ -831,7 +832,7 @@ func (d *Daemon) Init() error {
 	}
 
 	/* Load all config values from the database */
-	err = daemonConfigInit(d.db)
+	err = daemonConfigInit(d.localDB)
 	if err != nil {
 		return err
 	}
@@ -1052,6 +1053,8 @@ func (d *Daemon) Init() error {
 				if err != nil {
 					return fmt.Errorf("Couldn't rejoin cluster: %v", err)
 				}
+
+				// XXX: need to set d.db here
 			}
 		}
 

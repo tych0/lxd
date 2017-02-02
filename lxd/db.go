@@ -264,15 +264,16 @@ func initializeDbObject(d *Daemon, path string) (err error) {
 	if err != nil {
 		return err
 	}
+	d.localDB = d.db
 
 	// Create the DB if it doesn't exist.
-	err = createDb(d.db)
+	err = createDb(d.localDB)
 	if err != nil {
 		return fmt.Errorf("Error creating database: %s", err)
 	}
 
 	// Run PRAGMA statements now since they are *per-connection*.
-	d.db.Exec(enableForeignKeys) // This allows us to use ON DELETE CASCADE
+	d.localDB.Exec(enableForeignKeys) // This allows us to use ON DELETE CASCADE
 
 	// Apply any update
 	err = dbUpdatesApplyAll(d)

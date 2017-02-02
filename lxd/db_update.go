@@ -85,7 +85,7 @@ func (u *dbUpdate) apply(currentVersion int, d *Daemon) error {
 		return err
 	}
 
-	_, err = d.db.Exec("INSERT INTO schema (version, updated_at) VALUES (?, strftime(\"%s\"));", u.version)
+	_, err = d.localDB.Exec("INSERT INTO schema (version, updated_at) VALUES (?, strftime(\"%s\"));", u.version)
 	if err != nil {
 		return err
 	}
@@ -94,7 +94,7 @@ func (u *dbUpdate) apply(currentVersion int, d *Daemon) error {
 }
 
 func dbUpdatesApplyAll(d *Daemon) error {
-	currentVersion := dbGetSchema(d.db)
+	currentVersion := dbGetSchema(d.localDB)
 
 	backup := false
 	for _, update := range dbUpdates {
@@ -139,12 +139,12 @@ CREATE TABLE IF NOT EXISTS networks_config (
     UNIQUE (network_id, key),
     FOREIGN KEY (network_id) REFERENCES networks (id) ON DELETE CASCADE
 );`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
 func dbUpdateFromV32(currentVersion int, version int, d *Daemon) error {
-	_, err := d.db.Exec("ALTER TABLE containers ADD COLUMN last_use_date DATETIME;")
+	_, err := d.localDB.Exec("ALTER TABLE containers ADD COLUMN last_use_date DATETIME;")
 	return err
 }
 
@@ -156,7 +156,7 @@ CREATE TABLE IF NOT EXISTS patches (
     applied_at DATETIME NOT NULL,
     UNIQUE (name)
 );`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -223,13 +223,13 @@ func dbUpdateFromV28(currentVersion int, version int, d *Daemon) error {
 INSERT INTO profiles_devices (profile_id, name, type) SELECT id, "aadisable", 2 FROM profiles WHERE name="docker";
 INSERT INTO profiles_devices_config (profile_device_id, key, value) SELECT profiles_devices.id, "source", "/dev/null" FROM profiles_devices LEFT JOIN profiles WHERE profiles_devices.profile_id = profiles.id AND profiles.name = "docker" AND profiles_devices.name = "aadisable";
 INSERT INTO profiles_devices_config (profile_device_id, key, value) SELECT profiles_devices.id, "path", "/sys/module/apparmor/parameters/enabled" FROM profiles_devices LEFT JOIN profiles WHERE profiles_devices.profile_id = profiles.id AND profiles.name = "docker" AND profiles_devices.name = "aadisable";`
-	d.db.Exec(stmt)
+	d.localDB.Exec(stmt)
 
 	return nil
 }
 
 func dbUpdateFromV27(currentVersion int, version int, d *Daemon) error {
-	_, err := d.db.Exec("UPDATE profiles_devices SET type=3 WHERE type='unix-char';")
+	_, err := d.localDB.Exec("UPDATE profiles_devices SET type=3 WHERE type='unix-char';")
 	return err
 }
 
@@ -245,7 +245,7 @@ CREATE TABLE IF NOT EXISTS images_source (
     alias VARCHAR(255) NOT NULL,
     FOREIGN KEY (image_id) REFERENCES images (id) ON DELETE CASCADE
 );`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -256,18 +256,18 @@ INSERT INTO profiles_config (profile_id, key, value) SELECT id, "security.nestin
 INSERT INTO profiles_config (profile_id, key, value) SELECT id, "linux.kernel_modules", "overlay, nf_nat" FROM profiles WHERE name="docker";
 INSERT INTO profiles_devices (profile_id, name, type) SELECT id, "fuse", "unix-char" FROM profiles WHERE name="docker";
 INSERT INTO profiles_devices_config (profile_device_id, key, value) SELECT profiles_devices.id, "path", "/dev/fuse" FROM profiles_devices LEFT JOIN profiles WHERE profiles_devices.profile_id = profiles.id AND profiles.name = "docker";`
-	d.db.Exec(stmt)
+	d.localDB.Exec(stmt)
 
 	return nil
 }
 
 func dbUpdateFromV24(currentVersion int, version int, d *Daemon) error {
-	_, err := d.db.Exec("ALTER TABLE containers ADD COLUMN stateful INTEGER NOT NULL DEFAULT 0;")
+	_, err := d.localDB.Exec("ALTER TABLE containers ADD COLUMN stateful INTEGER NOT NULL DEFAULT 0;")
 	return err
 }
 
 func dbUpdateFromV23(currentVersion int, version int, d *Daemon) error {
-	_, err := d.db.Exec("ALTER TABLE profiles ADD COLUMN description TEXT;")
+	_, err := d.localDB.Exec("ALTER TABLE profiles ADD COLUMN description TEXT;")
 	return err
 }
 
@@ -275,12 +275,12 @@ func dbUpdateFromV22(currentVersion int, version int, d *Daemon) error {
 	stmt := `
 DELETE FROM containers_devices_config WHERE key='type';
 DELETE FROM profiles_devices_config WHERE key='type';`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
 func dbUpdateFromV21(currentVersion int, version int, d *Daemon) error {
-	_, err := d.db.Exec("ALTER TABLE containers ADD COLUMN creation_date DATETIME NOT NULL DEFAULT 0;")
+	_, err := d.localDB.Exec("ALTER TABLE containers ADD COLUMN creation_date DATETIME NOT NULL DEFAULT 0;")
 	return err
 }
 
@@ -291,7 +291,7 @@ UPDATE profiles_devices SET name='__lxd_upgrade_root' WHERE name='root';
 
 INSERT INTO containers_devices (container_id, name, type) SELECT id, "root", 2 FROM containers;
 INSERT INTO containers_devices_config (container_device_id, key, value) SELECT id, "path", "/" FROM containers_devices WHERE name='root';`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 
 	return err
 }
@@ -304,7 +304,7 @@ DELETE FROM containers_devices WHERE container_id NOT IN (SELECT id FROM contain
 DELETE FROM containers_profiles WHERE container_id NOT IN (SELECT id FROM containers);
 DELETE FROM images_aliases WHERE image_id NOT IN (SELECT id FROM images);
 DELETE FROM images_properties WHERE image_id NOT IN (SELECT id FROM images);`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -313,7 +313,7 @@ func dbUpdateFromV18(currentVersion int, version int, d *Daemon) error {
 	var value string
 
 	// Update container config
-	rows, err := dbQueryScan(d.db, "SELECT id, value FROM containers_config WHERE key='limits.memory'", nil, []interface{}{id, value})
+	rows, err := dbQueryScan(d.localDB, "SELECT id, value FROM containers_config WHERE key='limits.memory'", nil, []interface{}{id, value})
 	if err != nil {
 		return err
 	}
@@ -336,21 +336,21 @@ func dbUpdateFromV18(currentVersion int, version int, d *Daemon) error {
 		_, err = shared.ParseByteSizeString(value)
 		if err != nil {
 			shared.LogDebugf("Invalid container memory limit, id=%d value=%s, removing.", id, value)
-			_, err = d.db.Exec("DELETE FROM containers_config WHERE id=?;", id)
+			_, err = d.localDB.Exec("DELETE FROM containers_config WHERE id=?;", id)
 			if err != nil {
 				return err
 			}
 		}
 
 		// Set the new value
-		_, err = d.db.Exec("UPDATE containers_config SET value=? WHERE id=?", value, id)
+		_, err = d.localDB.Exec("UPDATE containers_config SET value=? WHERE id=?", value, id)
 		if err != nil {
 			return err
 		}
 	}
 
 	// Update profiles config
-	rows, err = dbQueryScan(d.db, "SELECT id, value FROM profiles_config WHERE key='limits.memory'", nil, []interface{}{id, value})
+	rows, err = dbQueryScan(d.localDB, "SELECT id, value FROM profiles_config WHERE key='limits.memory'", nil, []interface{}{id, value})
 	if err != nil {
 		return err
 	}
@@ -373,14 +373,14 @@ func dbUpdateFromV18(currentVersion int, version int, d *Daemon) error {
 		_, err = shared.ParseByteSizeString(value)
 		if err != nil {
 			shared.LogDebugf("Invalid profile memory limit, id=%d value=%s, removing.", id, value)
-			_, err = d.db.Exec("DELETE FROM profiles_config WHERE id=?;", id)
+			_, err = d.localDB.Exec("DELETE FROM profiles_config WHERE id=?;", id)
 			if err != nil {
 				return err
 			}
 		}
 
 		// Set the new value
-		_, err = d.db.Exec("UPDATE profiles_config SET value=? WHERE id=?", value, id)
+		_, err = d.localDB.Exec("UPDATE profiles_config SET value=? WHERE id=?", value, id)
 		if err != nil {
 			return err
 		}
@@ -394,7 +394,7 @@ func dbUpdateFromV17(currentVersion int, version int, d *Daemon) error {
 DELETE FROM profiles_config WHERE key LIKE 'volatile.%';
 UPDATE containers_config SET key='limits.cpu' WHERE key='limits.cpus';
 UPDATE profiles_config SET key='limits.cpu' WHERE key='limits.cpus';`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -402,7 +402,7 @@ func dbUpdateFromV16(currentVersion int, version int, d *Daemon) error {
 	stmt := `
 UPDATE config SET key='storage.lvm_vg_name' WHERE key = 'core.lvm_vg_name';
 UPDATE config SET key='storage.lvm_thinpool_name' WHERE key = 'core.lvm_thinpool_name';`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -410,12 +410,12 @@ func dbUpdateFromV15(currentVersion int, version int, d *Daemon) error {
 	// munge all LVM-backed containers' LV names to match what is
 	// required for snapshot support
 
-	cNames, err := dbContainersList(d.db, cTypeRegular)
+	cNames, err := dbContainersList(d.localDB, cTypeRegular)
 	if err != nil {
 		return err
 	}
 
-	err = daemonConfigInit(d.db)
+	err = daemonConfigInit(d.localDB)
 	if err != nil {
 		return err
 	}
@@ -490,14 +490,14 @@ DROP TABLE containers;
 ALTER TABLE tmp RENAME TO containers;
 
 PRAGMA foreign_keys=ON; -- Make sure we turn integrity checks back on.`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
 func dbUpdateFromV13(currentVersion int, version int, d *Daemon) error {
 	stmt := `
 UPDATE containers_config SET key='volatile.base_image' WHERE key = 'volatile.baseImage';`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -505,7 +505,7 @@ func dbUpdateFromV12(currentVersion int, version int, d *Daemon) error {
 	stmt := `
 ALTER TABLE images ADD COLUMN cached INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE images ADD COLUMN last_use_date DATETIME;`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -516,7 +516,7 @@ func dbUpdateFromV11(currentVersion int, version int, d *Daemon) error {
 		return nil
 	}
 
-	cNames, err := dbContainersList(d.db, cTypeSnapshot)
+	cNames, err := dbContainersList(d.localDB, cTypeSnapshot)
 	if err != nil {
 		return err
 	}
@@ -643,14 +643,14 @@ UPDATE profiles_devices SET type=3 WHERE id IN (SELECT id FROM tmp WHERE type="u
 UPDATE profiles_devices SET type=4 WHERE id IN (SELECT id FROM tmp WHERE type="unix-block");
 
 DROP TABLE tmp;`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
 func dbUpdateFromV8(currentVersion int, version int, d *Daemon) error {
 	stmt := `
 UPDATE certificates SET fingerprint = replace(fingerprint, " ", "");`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -658,7 +658,7 @@ func dbUpdateFromV7(currentVersion int, version int, d *Daemon) error {
 	stmt := `
 UPDATE config SET key='core.trust_password' WHERE key IN ('password', 'trust_password', 'trust-password', 'core.trust-password');
 DELETE FROM config WHERE key != 'core.trust_password';`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -787,13 +787,13 @@ INSERT INTO profiles_devices_config SELECT * FROM tmp;
 DROP TABLE tmp;
 
 PRAGMA foreign_keys=ON; -- Make sure we turn integrity checks back on.`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	if err != nil {
 		return err
 	}
 
 	// Get the rows with broken foreign keys an nuke them
-	rows, err := d.db.Query("PRAGMA foreign_key_check;")
+	rows, err := d.localDB.Query("PRAGMA foreign_key_check;")
 	if err != nil {
 		return err
 	}
@@ -815,7 +815,7 @@ PRAGMA foreign_keys=ON; -- Make sure we turn integrity checks back on.`
 	rows.Close()
 
 	for i := range tablestodelete {
-		_, err = d.db.Exec(fmt.Sprintf("DELETE FROM %s WHERE rowid = %d;", tablestodelete[i], rowidtodelete[i]))
+		_, err = d.localDB.Exec(fmt.Sprintf("DELETE FROM %s WHERE rowid = %d;", tablestodelete[i], rowidtodelete[i]))
 		if err != nil {
 			return err
 		}
@@ -828,7 +828,7 @@ func dbUpdateFromV5(currentVersion int, version int, d *Daemon) error {
 	stmt := `
 ALTER TABLE containers ADD COLUMN power_state INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE containers ADD COLUMN ephemeral INTEGER NOT NULL DEFAULT 0;`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -841,7 +841,7 @@ CREATE TABLE IF NOT EXISTS config (
     UNIQUE (key)
 );`
 
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	if err != nil {
 		return err
 	}
@@ -860,7 +860,7 @@ CREATE TABLE IF NOT EXISTS config (
 		oldPassword = hex.EncodeToString(buff)
 		stmt := `INSERT INTO config (key, value) VALUES ("core.trust_password", ?);`
 
-		_, err := d.db.Exec(stmt, oldPassword)
+		_, err := d.localDB.Exec(stmt, oldPassword)
 		if err != nil {
 			return err
 		}
@@ -873,7 +873,7 @@ CREATE TABLE IF NOT EXISTS config (
 
 func dbUpdateFromV3(currentVersion int, version int, d *Daemon) error {
 	// Attempt to create a default profile (but don't fail if already there)
-	d.db.Exec("INSERT INTO profiles (name) VALUES (\"default\");")
+	d.localDB.Exec("INSERT INTO profiles (name) VALUES (\"default\");")
 
 	return nil
 }
@@ -934,7 +934,7 @@ CREATE TABLE IF NOT EXISTS profiles_devices_config (
     UNIQUE (profile_device_id, key),
     FOREIGN KEY (profile_device_id) REFERENCES profiles_devices (id)
 );`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -949,7 +949,7 @@ CREATE TABLE IF NOT EXISTS images_aliases (
     FOREIGN KEY (image_id) REFERENCES images (id) ON DELETE CASCADE,
     UNIQUE (name)
 );`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }
 
@@ -962,6 +962,6 @@ CREATE TABLE IF NOT EXISTS schema (
     updated_at DATETIME NOT NULL,
     UNIQUE (version)
 );`
-	_, err := d.db.Exec(stmt)
+	_, err := d.localDB.Exec(stmt)
 	return err
 }

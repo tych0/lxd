@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/x509"
 	"encoding/json"
+	"database/sql"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -203,6 +204,10 @@ func StartRQLite(d *Daemon, leader bool) error {
 }
 
 func StopRQLite() error {
+	if store == nil {
+		return fmt.Errorf("already stopped rqlite")
+	}
+
 	err := store.Close(false)
 
 	transport = nil
@@ -282,20 +287,21 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 		return BadRequest(err)
 	}
 
+	if req.Leader && req.Name == "" {
+		return BadRequest(fmt.Errorf("must supply a name to the cluster leader"))
+	}
+
 	err = StartRQLite(d, req.Leader)
 	if err != nil {
 		return InternalError(err)
 	}
 
-	if req.Leader {
-		if req.Name == "" {
-			return BadRequest(fmt.Errorf("must supply a name to the cluster leader"))
-		}
 
-		_, err := store.WaitForLeader(5 * time.Second)
+	if req.Leader {
+		_, err = store.WaitForLeader(5 * time.Second)
 		if err != nil {
 			StopRQLite()
-			return InternalError(err)
+			return InternalError(fmt.Errorf("timed out waiting for initial leader"))
 		}
 
 		cert, err := ioutil.ReadFile(shared.VarPath("server.crt"))
@@ -332,6 +338,45 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 		}
 	}
 
+	go func() {
+		var err error
+
+		/* this is a little bit of a hack; really we should probably do this on Accept */
+		for {
+			if store == nil {
+				return
+			}
+
+			_, err = store.WaitForLeader(5 * time.Second)
+			if err != nil {
+				continue
+			}
+
+			break
+		}
+
+		d.db, err = sql.Open("lxdrqlite", "unused")
+		if err != nil {
+			store.Close(false)
+			store = nil
+			shared.LogErrorf("couldn't open rqlite DB connection: %s", err)
+			return
+		}
+
+		certs, err := dbCertsGet(d.localDB)
+		if err != nil {
+			shared.LogErrorf("couldn't get old certs, not porting them to cluster: %s", err)
+			return
+		}
+
+		for _, c := range certs {
+			err := dbCertSave(d.db, c)
+			if err != nil {
+				shared.LogErrorf("couldn't write new certs %s", err)
+			}
+		}
+	}()
+
 	return EmptySyncResponse
 }
 
@@ -365,6 +410,7 @@ var clusterNodesPost = onLeaderHandler{
 		 */
 		_, err = store.Execute([]string{addMemberStmt(m.Addr, m.Name, m.Certificate)}, false, true)
 		if err != nil {
+			shared.LogErrorf("failed adding new member: %s", err)
 			return err
 		}
 

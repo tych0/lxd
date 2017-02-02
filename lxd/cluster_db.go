@@ -6,10 +6,15 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	rqdb "github.com/rqlite/rqlite/db"
 	rqstore "github.com/rqlite/rqlite/store"
 )
+
+func init() {
+	sql.Register("lxdrqlite", RqliteDriver{})
+}
 
 type RqliteResult struct {
 	result *rqdb.Result
@@ -75,14 +80,31 @@ func (s *RqliteStmt) NumInput() int {
 }
 
 func (s *RqliteStmt) Exec(args []driver.Value) (driver.Result, error) {
-	argsIf := []interface{}{}
+	rendered := []interface{}{}
 	for _, v := range args {
-		argsIf = append(argsIf, v.(interface{}))
+		r := ""
+		switch v.(type) {
+		case int64:
+			r = fmt.Sprintf("%v", v)
+		case float64:
+			r = fmt.Sprintf("%v", v)
+		case bool:
+			r = fmt.Sprintf("%v", v)
+		case time.Time:
+			r = fmt.Sprintf("%v", v)
+		case []byte:
+			r = fmt.Sprintf(`'%s'`, v)
+		case string:
+			r = fmt.Sprintf(`'%s'`, v)
+		default:
+			return nil, fmt.Errorf("unknown type %T", v)
+		}
+		rendered = append(rendered, r)
 	}
 
-	q := fmt.Sprintf(strings.Replace(s.q, "?", "%v", -1), argsIf)
+	q := fmt.Sprintf(strings.Replace(s.q, "?", "%s", -1), rendered...)
 
-	results, err := store.Execute([]string{q}, false, true)
+	results, err := store.Execute([]string{q}, false, false)
 	if isNotLeaderErr(err) {
 		leader, err := peerStore.Leader()
 		if err != nil {
@@ -100,6 +122,8 @@ func (s *RqliteStmt) Exec(args []driver.Value) (driver.Result, error) {
 		}
 
 		return &RqliteResult{result}, nil
+	} else if err != nil {
+		return nil, err
 	}
 
 	if len(results) != 1 {
@@ -119,9 +143,9 @@ func (s *RqliteStmt) Query(args []driver.Value) (driver.Rows, error) {
 		argsIf = append(argsIf, v.(interface{}))
 	}
 
-	q := fmt.Sprintf(strings.Replace(s.q, "?", "%v", -1), argsIf)
+	q := fmt.Sprintf(strings.Replace(s.q, "?", "%#v", -1), argsIf...)
 
-	result, err := store.Query([]string{q}, false, true, rqstore.Weak)
+	result, err := store.Query([]string{q}, false, false, rqstore.Weak)
 	if isNotLeaderErr(err) {
 		leader, err := peerStore.Leader()
 		if err != nil {
@@ -159,12 +183,12 @@ func (c *RqliteConn) Prepare(query string) (driver.Stmt, error) {
 	if c.closed {
 		return nil, fmt.Errorf("connection is closed")
 	}
-	return &RqliteStmt{query}, nil
+	return &RqliteStmt{query, c}, nil
 }
 
 func (c *RqliteConn) Close() error {
 	if c.closed {
-		return nil, fmt.Errorf("connection is closed")
+		return fmt.Errorf("connection is closed")
 	}
 
 	c.closed = true
@@ -178,7 +202,7 @@ func (c *RqliteConn) Begin() (driver.Tx, error) {
 type RqliteDriver struct {}
 
 func (d RqliteDriver) Open(name string) (driver.Conn, error) {
-	return RqliteConn{}, nil
+	return &RqliteConn{}, nil
 }
 
 // XXX: move this somewhere else
