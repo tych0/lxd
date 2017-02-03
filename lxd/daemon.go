@@ -239,6 +239,7 @@ func (d *Daemon) isTrustedClient(r *http.Request) bool {
 	return false
 }
 
+/*
 func (d *Daemon) isClusterRequest(r *http.Request) (bool, error) {
 	if r.TLS == nil {
 		return false, nil
@@ -261,6 +262,7 @@ func (d *Daemon) isClusterRequest(r *http.Request) (bool, error) {
 
 	return false, nil
 }
+*/
 
 func isJSONRequest(r *http.Request) bool {
 	for k, vs := range r.Header {
@@ -295,17 +297,7 @@ func (d *Daemon) createCmd(version string, c Command) {
 	d.mux.HandleFunc(uri, func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		clusterReq, err := d.isClusterRequest(r)
-		if err != nil {
-			InternalError(err).Render(w)
-			return
-		}
-
-		if clusterReq {
-			shared.LogDebug(
-				"handling",
-				log.Ctx{"method": r.Method, "url": r.URL.RequestURI(), "ip": r.RemoteAddr})
-		} else if d.isTrustedClient(r) {
+		if d.isTrustedClient(r) {
 			shared.LogDebug(
 				"handling",
 				log.Ctx{"method": r.Method, "url": r.URL.RequestURI(), "ip": r.RemoteAddr})
@@ -1500,7 +1492,7 @@ func clusterRoute(target *shared.ClusterMember, req *http.Request) Response {
 		path = appendQueryParam(req.URL.Path, "clusterTarget", target.Name)
 	}
 
-	resp, _, err := forwardRequest(target, path, req)
+	resp, _, err := forwardRequest(target.Addr, path, req)
 	// resp, c, err := forwardRequest(target, path, req)
 	if err != nil {
 		shared.LogErrorf("error in clusterRoute: %s", err)
@@ -1598,7 +1590,7 @@ func (s *lxdHttpServer) ServeHTTP(rw http.ResponseWriter, req *http.Request) {
 					}
 
 					path := appendQueryParam(req.URL.Path, "clusterTarget", m.Name)
-					resp, c, err := forwardRequest(&m, path, req)
+					resp, c, err := forwardRequest(m.Addr, path, req)
 					if err != nil {
 						InternalError(err).Render(rw)
 						return

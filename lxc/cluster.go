@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/olekukonko/tablewriter"
 
@@ -60,8 +61,12 @@ func (c *clusterCmd) enable(config *lxd.Config, args []string) error {
 		return err
 	}
 
-	_, err = client.ClusterInit(args[0], "", "", "")
-	return err
+	resp, err := client.ClusterInit(args[0], "", "", "")
+	if err != nil {
+		return err
+	}
+
+	return client.WaitForSuccess(resp.Operation)
 }
 
 func (c *clusterCmd) add(config *lxd.Config, args []string) error {
@@ -88,12 +93,23 @@ func (c *clusterCmd) add(config *lxd.Config, args []string) error {
 		return err
 	}
 
+	nStatus, err := nc.ServerStatus()
+	if err != nil {
+		return err
+	}
+
+	nCert, err := shared.ParseCert(nStatus.Environment.Certificate)
+	if err != nil {
+		return err
+	}
+
 	cCert, err := shared.ParseCert(cStatus.Environment.Certificate)
 	if err != nil {
 		return err
 	}
 
 	/* we don't care if the cert was already there */
+	cc.CertificateAdd(nCert, args[0])
 	nc.CertificateAdd(cCert, args[0])
 
 	addr := ""
@@ -109,24 +125,25 @@ func (c *clusterCmd) add(config *lxd.Config, args []string) error {
 		return err
 	}
 
-	for {
+	for i := 0; i < 5; i ++{
 		done, err := nc.WaitFor(resp.Operation)
 		if err != nil  {
 			/* network errors while it's restarting its network,
 			 * changing its cert, and waiting to get the new certs
 			 * from the DB
 			 */
+			time.Sleep(1 * time.Second)
 			continue
 		}
 
 		if done.StatusCode != api.Success {
-			return fmt.Errorf(done.Err)
+			return fmt.Errorf("failed cluster init: %s", done.Err)
 		}
 
-		break
+		return nil
 	}
 
-	return nil
+	return fmt.Errorf("cluster didn't come back up after re-loading cert: %s", err)
 }
 
 func (c *clusterCmd) info(config *lxd.Config, args []string) error {

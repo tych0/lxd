@@ -2,7 +2,7 @@ package main
 
 import (
 	"encoding/json"
-	"encoding/pem"
+	//"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"os"
@@ -68,11 +68,14 @@ func (ps *LXDPeerStore) getMembers() ([]shared.ClusterMember, error) {
 	 * since we might have just joined a cluster, so let's not use
 	 * clusterDbQuery.
 	 */
-	result, err := store.Query([]string{"SELECT name, addr, certificate FROM cluster_nodes"}, false, true, rqstore.Weak)
+	result, err := store.Query([]string{"SELECT name, addr FROM cluster_nodes"}, false, true, rqstore.Weak)
+	shared.LogErrorf("cluster_nodes result: %s", result)
 
 	if isNotLeaderErr(err) {
+		shared.LogErrorf("is not leader in get members")
 		var client *lxd.Client
 
+		/*
 		if firstLeaderCert != nil {
 			leader := store.Leader()
 			serverCertBytes := pem.EncodeToMemory(&pem.Block{
@@ -85,15 +88,11 @@ func (ps *LXDPeerStore) getMembers() ([]shared.ClusterMember, error) {
 				return nil, err
 			}
 		} else {
-			leader, err := ps.Leader()
-			if err != nil {
-				return nil, err
-			}
-
-			client, err = connectTo(leader.Addr, leader.Certificate)
-			if err != nil {
-				return nil, err
-			}
+			*/
+		leader := store.Leader()
+		client, err = connectTo(leader, "")
+		if err != nil {
+			return nil, err
 		}
 
 		info, err := client.ClusterInfo()
@@ -120,19 +119,23 @@ func (ps *LXDPeerStore) getMembers() ([]shared.ClusterMember, error) {
 
 			m.Name = r[0].(string)
 			m.Addr = r[1].(string)
-			m.Certificate = r[2].(string)
 			m.Leader = store.Leader() == m.Addr
 
 			newMembers = append(newMembers, m)
 		}
 	}
 
+	shared.LogErrorf("newMembers: ", newMembers)
+
 	return newMembers, nil
 }
 
 func (ps *LXDPeerStore) SetPeers(peers []string) error {
+	shared.LogErrorf("SetPeers: %s", peers)
+
 	newMembers, err := ps.getMembers()
 	if err != nil {
+		shared.LogErrorf("SetPeers err: %s", err)
 		return err
 	}
 
@@ -147,6 +150,7 @@ func (ps *LXDPeerStore) SetPeers(peers []string) error {
 		}
 
 		if !found {
+			shared.LogErrorf("SetPeers !found for %s", p)
 			return fmt.Errorf("couldn't find cert info for peer %s", p)
 		}
 	}
@@ -162,11 +166,6 @@ func (ps *LXDPeerStore) RefreshMembers() error {
 	}
 
 	return err
-}
-
-func (ps *LXDPeerStore) SetMembers(ms []shared.ClusterMember) error {
-	ps.members = ms
-	return ps.persist()
 }
 
 func (ps *LXDPeerStore) AddPeer(m shared.ClusterMember) error {
@@ -190,8 +189,4 @@ func (ps *LXDPeerStore) MemberByName(name string) (*shared.ClusterMember, error)
 
 func (ps *LXDPeerStore) MemberByAddr(addr string) (*shared.ClusterMember, error) {
 	return ps.findClusterMember(func(m shared.ClusterMember) bool { return m.Addr == addr })
-}
-
-func (ps *LXDPeerStore) Leader() (*shared.ClusterMember, error) {
-	return ps.MemberByAddr(store.Leader())
 }

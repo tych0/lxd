@@ -454,8 +454,33 @@ func operationGet(id string) (*operation, error) {
 	return op, nil
 }
 
+func dbGetOperationNode(db *sql.DB, uuid string) (string, error) {
+	q := "SELECT addr FROM cluster_nodes JOIN operations ON operations.cluster_id=cluster_nodes.id WHERE uuid=?"
+
+	rows, err := dbQuery(db, q, uuid)
+	if err != nil {
+		shared.LogErrorf("dbQuery error: %s", err)
+		return "", err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		addr := ""
+		rows.Scan(&addr)
+
+		m, err := peerStore.MemberByAddr(addr)
+		if err != nil {
+			return "", err
+		}
+
+		return m.Addr, nil
+	}
+
+	return "", fmt.Errorf("no peer found for %s", uuid)
+}
+
 // API functions
-func operationFindOrForward(r *http.Request) (*operation, Response) {
+func operationFindOrForward(d *Daemon, r *http.Request) (*operation, Response) {
 	id := mux.Vars(r)["id"]
 
 	op, err := operationGet(id)
@@ -464,23 +489,7 @@ func operationFindOrForward(r *http.Request) (*operation, Response) {
 			return nil, NotFound
 		}
 
-		q := fmt.Sprintf("SELECT addr FROM cluster_nodes JOIN operations ON operations.cluster_id=cluster_nodes.id WHERE uuid='%s'", id)
-		rows, err := clusterDbQuery(q)
-		if err != nil {
-			return nil, InternalError(err)
-		}
-
-		addr := ""
-		for _, r := range rows.Values {
-			addr = r[0].(string)
-			break
-		}
-
-		if addr == "" {
-			return nil, NotFound
-		}
-
-		m, err := peerStore.MemberByAddr(addr)
+		m, err := dbGetOperationNode(d.db, id)
 		if err != nil {
 			return nil, InternalError(err)
 		}
@@ -498,7 +507,7 @@ func operationFindOrForward(r *http.Request) (*operation, Response) {
 }
 
 func operationAPIGet(d *Daemon, r *http.Request) Response {
-	op, resp := operationFindOrForward(r)
+	op, resp := operationFindOrForward(d, r)
 	if op == nil {
 		return resp
 	}
@@ -512,7 +521,7 @@ func operationAPIGet(d *Daemon, r *http.Request) Response {
 }
 
 func operationAPIDelete(d *Daemon, r *http.Request) Response {
-	op, resp := operationFindOrForward(r)
+	op, resp := operationFindOrForward(d, r)
 	if op == nil {
 		return resp
 	}
@@ -568,7 +577,7 @@ func operationsAPIGet(d *Daemon, r *http.Request) Response {
 var operationsCmd = Command{name: "operations", get: operationsAPIGet}
 
 func operationAPIWaitGet(d *Daemon, r *http.Request) Response {
-	op, resp := operationFindOrForward(r)
+	op, resp := operationFindOrForward(d, r)
 	if op == nil {
 		return resp
 	}
@@ -619,7 +628,7 @@ func (r *operationWebSocket) String() string {
 
 func operationAPIWebsocketGet(d *Daemon, r *http.Request) Response {
 	/* XXX: does this really work? */
-	op, resp := operationFindOrForward(r)
+	op, resp := operationFindOrForward(d, r)
 	if op == nil {
 		return resp
 	}

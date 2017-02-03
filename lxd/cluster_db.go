@@ -113,12 +113,7 @@ func (s *RqliteStmt) Exec(args []driver.Value) (driver.Result, error) {
 
 	results, err := store.Execute([]string{q}, false, false)
 	if isNotLeaderErr(err) {
-		leader, err := peerStore.Leader()
-		if err != nil {
-			return nil, err
-		}
-
-		l, err := connectTo(leader.Addr, leader.Certificate)
+		l, err := connectTo(store.Leader(), "")
 		if err != nil {
 			return nil, err
 		}
@@ -154,12 +149,7 @@ func (s *RqliteStmt) Query(args []driver.Value) (driver.Rows, error) {
 
 	result, err := store.Query([]string{q}, false, false, rqstore.Weak)
 	if isNotLeaderErr(err) {
-		leader, err := peerStore.Leader()
-		if err != nil {
-			return nil, err
-		}
-
-		l, err := connectTo(leader.Addr, leader.Certificate)
+		l, err := connectTo(store.Leader(), "")
 		if err != nil {
 			return nil, err
 		}

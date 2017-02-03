@@ -56,13 +56,21 @@ func MyClusterName() string {
 }
 
 func MyClusterId() (int, error) {
-	rows, err := clusterDbQuery(fmt.Sprintf("SELECT id FROM cluster_nodes WHERE addr='%s'", transport.myAddr))
+	db, err := sql.Open("lxdrqlite", "unused")
+	if err != nil {
+		return -1, err
+	}
+	defer db.Close()
+
+	rows, err := db.Query("SELECT id FROM cluster_nodes WHERE addr=?", transport.myAddr)
 	if err != nil {
 		return -1, err
 	}
 
-	for _, r := range rows.Values {
-		return int(r[0].(float64)), nil
+	for rows.Next() {
+		ret := 0
+		rows.Scan(&ret)
+		return ret, nil
 	}
 
 	return -1, fmt.Errorf("my cluster id wasn't found")
@@ -122,12 +130,12 @@ func (t *LXDTransport) Addr() net.Addr {
 }
 
 func (t *LXDTransport) Dial(address string, timeout time.Duration) (net.Conn, error) {
-	m, err := peerStore.MemberByAddr(address)
+	certContent, err := ioutil.ReadFile(shared.VarPath("server.crt"))
 	if err != nil {
 		return nil, err
 	}
 
-	cert, err := shared.ParseCert(m.Certificate)
+	cert, err := shared.ParseCert(string(certContent))
 	if err != nil {
 		return nil, err
 	}
@@ -302,48 +310,50 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 		return BadRequest(fmt.Errorf("must supply a cluster name"))
 	}
 
-	if req.Leader != "" && req.Certificate == "" || req.Password == "" {
-		return BadRequest(fmt.Errorf("must supply a password and certificate when supplying a leader"))
+	if req.Leader != "" && req.Certificate == "" {
+		return BadRequest(fmt.Errorf("must supply a certificate when supplying a leader"))
 	}
 
 	run := func(*operation) error {
-		if d.TCPSocket != nil {
-			return fmt.Errorf("not bound on TCP but clustering enabled?")
-		}
+		if req.Leader != "" {
+			if d.TCPSocket == nil {
+				return fmt.Errorf("not bound on TCP but clustering enabled?")
+			}
 
-		c, err := connectTo(req.Leader, req.Certificate)
-		if err != nil {
-			return err
-		}
+			c, err := connectTo(req.Leader, req.Certificate)
+			if err != nil {
+				return err
+			}
 
-		myAddr, err := d.ClusterAddr()
-		if err != nil {
-			return err
-		}
+			myAddr, err := d.ClusterAddr()
+			if err != nil {
+				return err
+			}
 
-		cert, key, err := c.ClusterAdd(req.Name, myAddr, "")
-		if err != nil {
-			return err
-		}
+			cert, key, err := c.ClusterAdd(req.Name, myAddr, "")
+			if err != nil {
+				return err
+			}
 
-		err = ioutil.WriteFile(shared.VarPath("server.crt"), []byte(cert), 0600)
-		if err != nil {
-			return err
-		}
+			err = ioutil.WriteFile(shared.VarPath("server.crt"), []byte(cert), 0600)
+			if err != nil {
+				return err
+			}
 
-		err = ioutil.WriteFile(shared.VarPath("server.key"), []byte(key), 0600)
-		if err != nil {
-			return err
-		}
+			err = ioutil.WriteFile(shared.VarPath("server.key"), []byte(key), 0600)
+			if err != nil {
+				return err
+			}
 
-		err = d.readOnDiskTLSConfig()
-		if err != nil {
-			return err
-		}
+			err = d.readOnDiskTLSConfig()
+			if err != nil {
+				return err
+			}
 
-		err = d.UpdateHTTPsPort(daemonConfig["core.https_address"].Get(), true)
-		if err != nil {
-			return err
+			err = d.UpdateHTTPsPort(daemonConfig["core.https_address"].Get(), true)
+			if err != nil {
+				return err
+			}
 		}
 
 		err = StartRQLite(d, req.Leader == "")
@@ -357,8 +367,20 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 			return fmt.Errorf("timed out waiting for initial leader")
 		}
 
+		d.db, err = sql.Open("lxdrqlite", "unused")
+		if err != nil {
+			StopRQLite()
+			return err
+		}
+
 		if req.Leader == "" {
-			cert, err := ioutil.ReadFile(shared.VarPath("server.crt"))
+			certContent, err := ioutil.ReadFile(shared.VarPath("server.crt"))
+			if err != nil {
+				StopRQLite()
+				return err
+			}
+
+			cert, err := shared.ParseCert(string(certContent))
 			if err != nil {
 				StopRQLite()
 				return err
@@ -370,9 +392,19 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 				return err
 			}
 
-			result, err := store.Execute([]string{CURRENT_SCHEMA, enableForeignKeys, me}, false, false)
-			initializeDbObject
-			dbAddMember(d.db, addr, req.Name)
+			err = createDb(d.db)
+			if err != nil {
+				StopRQLite()
+				return err
+			}
+
+			err = dbAddMember(d.db, addr, req.Name)
+			if err != nil {
+				StopRQLite()
+				return err
+			}
+
+			err = saveCert(d, "cluster", cert)
 			if err != nil {
 				StopRQLite()
 				return err
@@ -385,24 +417,18 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 			}
 		}
 
-		d.db, err = sql.Open("lxdrqlite", "unused")
-		if err != nil {
-			store.Close(false)
-			store = nil
-			shared.LogErrorf("couldn't open rqlite DB connection: %s", err)
-			return err
-		}
-
 		certs, err := dbCertsGet(d.localDB)
 		if err != nil {
 			return err
 		}
 
 		for _, c := range certs {
-			err := dbCertSave(d.db, c)
+			err = dbCertSave(d.db, c)
+			/*
 			if err != nil {
 				return err
 			}
+			*/
 		}
 
 		/* now, make sure we have all the certs from everyone else too */
@@ -438,6 +464,10 @@ func dbAddMember(db *sql.DB, addr string, name string) error {
 }
 
 func clusterNodesPost(d *Daemon, r *http.Request) Response {
+	if store == nil {
+		return InternalError(fmt.Errorf("clustering mode not enabled?"))
+	}
+
 	m := map[string]string{}
 
 	err := json.NewDecoder(r.Body).Decode(&m)
@@ -445,7 +475,7 @@ func clusterNodesPost(d *Daemon, r *http.Request) Response {
 		return BadRequest(err)
 	}
 
-	if !d.isTrustedClient(r) || m["password"] != daemonConfig["core.trust_password"].Get() {
+	if !d.isTrustedClient(r) && m["password"] != daemonConfig["core.trust_password"].Get() {
 		return Forbidden
 	}
 
@@ -499,6 +529,7 @@ var clusterNodesCmd = Command{
 	name: "cluster/nodes",
 	get:  clusterNodesGet,
 	post: clusterNodesPost,
+	untrustedPost: true,
 }
 
 type bytesReadCloser struct {
@@ -532,6 +563,11 @@ func connectTo(addr string, serverCert string) (*lxd.Client, error) {
 		return nil, err
 	}
 
+	/* in the cluster, all nodes have the same cert */
+	if serverCert == "" {
+		serverCert = string(cert)
+	}
+
 	key, err := ioutil.ReadFile(shared.VarPath("server.key"))
 	if err != nil {
 		return nil, err
@@ -548,8 +584,8 @@ func connectTo(addr string, serverCert string) (*lxd.Client, error) {
 	})
 }
 
-func forwardRequest(m *shared.ClusterMember, path string, r *http.Request) (*http.Response, *lxd.Client, error) {
-	l, err := connectTo(m.Addr, m.Certificate)
+func forwardRequest(addr string, path string, r *http.Request) (*http.Response, *lxd.Client, error) {
+	l, err := connectTo(addr, "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -590,7 +626,7 @@ func (olh *onLeaderHandler) handle(d *Daemon, r *http.Request) Response {
 	 * actual target.
 	 */
 	if !forwardToLeader && target != nil && target.Addr != transport.myAddr {
-		resp, _, err := forwardRequest(target, r.URL.Path, r)
+		resp, _, err := forwardRequest(target.Addr, r.URL.Path, r)
 		if err != nil {
 			return InternalError(err)
 		}
@@ -605,13 +641,8 @@ func (olh *onLeaderHandler) handle(d *Daemon, r *http.Request) Response {
 	}
 
 	if isNotLeaderErr(err) {
-		leader, err := peerStore.Leader()
-		if err != nil {
-			return InternalError(err)
-		}
-
 		path := appendQueryParam(r.URL.Path, "forwardToLeader", "true")
-		resp, _, err := forwardRequest(leader, path, r)
+		resp, _, err := forwardRequest(store.Leader(), path, r)
 		if err != nil {
 			return InternalError(err)
 		}
@@ -713,12 +744,7 @@ func clusterDbQuery(q string) (*rqdb.Rows, error) {
 
 	result, err := store.Query([]string{q}, false, true, rqstore.Weak)
 	if isNotLeaderErr(err) {
-		leader, err := peerStore.Leader()
-		if err != nil {
-			return nil, err
-		}
-
-		l, err := connectTo(leader.Addr, leader.Certificate)
+		l, err := connectTo(store.Leader(), "")
 		if err != nil {
 			return nil, err
 		}
@@ -738,12 +764,7 @@ func clusterDbQuery(q string) (*rqdb.Rows, error) {
 func clusterDbExecute(q string) error {
 	results, err := store.Execute([]string{q}, false, true)
 	if isNotLeaderErr(err) {
-		leader, err := peerStore.Leader()
-		if err != nil {
-			return err
-		}
-
-		l, err := connectTo(leader.Addr, leader.Certificate)
+		l, err := connectTo(store.Leader(), "")
 		if err != nil {
 			return err
 		}

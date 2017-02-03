@@ -194,7 +194,6 @@ CREATE TABLE IF NOT EXISTS cluster_nodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
     addr VARCHAR(255) NOT NULL,
     name VARCHAR(255) NOT NULL,
-    certificate TEXT NOT NULL,
     UNIQUE (addr),
     UNIQUE (name)
 );
