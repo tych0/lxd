@@ -288,7 +288,7 @@ func daemonConfigSetAddress(d *Daemon, key string, value string) (string, error)
 	}
 
 	// Update the current https address
-	err := d.UpdateHTTPsPort(value)
+	err := d.UpdateHTTPsPort(value, false)
 	if err != nil {
 		return "", err
 	}

@@ -524,10 +524,10 @@ func (d *Daemon) ListenAddresses() ([]string, error) {
 	return addresses, nil
 }
 
-func (d *Daemon) UpdateHTTPsPort(newAddress string) error {
+func (d *Daemon) UpdateHTTPsPort(newAddress string, force bool) error {
 	oldAddress := daemonConfig["core.https_address"].Get()
 
-	if oldAddress == newAddress {
+	if oldAddress == newAddress && !force {
 		return nil
 	}
 
@@ -578,6 +578,49 @@ func haveMacAdmin() bool {
 		return true
 	}
 	return false
+}
+
+func (d *Daemon) readOnDiskTLSConfig() error {
+	/* Setup the TLS authentication */
+	certf, keyf, err := readMyCert()
+	if err != nil {
+		return err
+	}
+
+	cert, err := tls.LoadX509KeyPair(certf, keyf)
+	if err != nil {
+		return err
+	}
+
+	tlsConfig := &tls.Config{
+		ClientAuth:   tls.RequestClientCert,
+		Certificates: []tls.Certificate{cert},
+		MinVersion:   tls.VersionTLS12,
+		MaxVersion:   tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA},
+		PreferServerCipherSuites: true,
+	}
+
+	if shared.PathExists(shared.VarPath("server.ca")) {
+		ca, err := shared.ReadCert(shared.VarPath("server.ca"))
+		if err != nil {
+			return err
+		}
+
+		caPool := x509.NewCertPool()
+		caPool.AddCert(ca)
+		tlsConfig.RootCAs = caPool
+		tlsConfig.ClientCAs = caPool
+
+		shared.LogInfof("LXD is in CA mode, only CA-signed certificates will be allowed")
+	}
+
+	tlsConfig.BuildNameToCertificate()
+
+	d.tlsConfig = tlsConfig
+	return nil
 }
 
 func (d *Daemon) Init() error {
@@ -897,45 +940,10 @@ func (d *Daemon) Init() error {
 		/* Start the scheduler */
 		go deviceEventListener(d)
 
-		/* Setup the TLS authentication */
-		certf, keyf, err := readMyCert()
+		err = d.readOnDiskTLSConfig()
 		if err != nil {
 			return err
 		}
-
-		cert, err := tls.LoadX509KeyPair(certf, keyf)
-		if err != nil {
-			return err
-		}
-
-		tlsConfig := &tls.Config{
-			ClientAuth:   tls.RequestClientCert,
-			Certificates: []tls.Certificate{cert},
-			MinVersion:   tls.VersionTLS12,
-			MaxVersion:   tls.VersionTLS12,
-			CipherSuites: []uint16{
-				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-				tls.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA},
-			PreferServerCipherSuites: true,
-		}
-
-		if shared.PathExists(shared.VarPath("server.ca")) {
-			ca, err := shared.ReadCert(shared.VarPath("server.ca"))
-			if err != nil {
-				return err
-			}
-
-			caPool := x509.NewCertPool()
-			caPool.AddCert(ca)
-			tlsConfig.RootCAs = caPool
-			tlsConfig.ClientCAs = caPool
-
-			shared.LogInfof("LXD is in CA mode, only CA-signed certificates will be allowed")
-		}
-
-		tlsConfig.BuildNameToCertificate()
-
-		d.tlsConfig = tlsConfig
 
 		readSavedClientCAList(d)
 	}

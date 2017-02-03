@@ -10,6 +10,7 @@ import (
 
 	"github.com/lxc/lxd"
 	"github.com/lxc/lxd/shared"
+	"github.com/lxc/lxd/shared/api"
 	"github.com/lxc/lxd/shared/i18n"
 )
 
@@ -59,7 +60,8 @@ func (c *clusterCmd) enable(config *lxd.Config, args []string) error {
 		return err
 	}
 
-	return client.ClusterInit(true, args[0])
+	_, err = client.ClusterInit(args[0], "", "", "")
+	return err
 }
 
 func (c *clusterCmd) add(config *lxd.Config, args []string) error {
@@ -81,11 +83,6 @@ func (c *clusterCmd) add(config *lxd.Config, args []string) error {
 		return err
 	}
 
-	nStatus, err := nc.ServerStatus()
-	if err != nil {
-		return err
-	}
-
 	cStatus, err := cc.ServerStatus()
 	if err != nil {
 		return err
@@ -96,41 +93,37 @@ func (c *clusterCmd) add(config *lxd.Config, args []string) error {
 		return err
 	}
 
-	certAdded := true
-	err = nc.CertificateAdd(cCert, args[0])
-	if err != nil {
-		certAdded = false
-	}
-
-	err = nc.ClusterInit(false, name)
-	if err != nil {
-		return err
-	}
+	/* we don't care if the cert was already there */
+	nc.CertificateAdd(cCert, args[0])
 
 	addr := ""
-	switch a := nStatus.Config["core.https_address"].(type) {
+	switch a := cStatus.Config["core.https_address"].(type) {
 	case string:
 		addr = a
 	default:
-		return fmt.Errorf("core.https_address is not a string: %v", nStatus.Config["core.https_address"])
+		return fmt.Errorf("core.https_address is not a string: %v", cStatus.Config["core.https_address"])
 	}
 
-	m := shared.ClusterMember{
-		Addr:        addr,
-		Name:        name,
-		Certificate: nStatus.Environment.Certificate,
-	}
-
-	err = cc.ClusterAdd(m)
+	resp, err := nc.ClusterInit(name, addr, cStatus.Environment.Certificate, "")
 	if err != nil {
 		return err
 	}
 
-	if false && certAdded {
-		err = nc.CertificateRemove(cStatus.Environment.CertificateFingerprint)
-		if err != nil {
-			return err
+	for {
+		done, err := nc.WaitFor(resp.Operation)
+		if err != nil  {
+			/* network errors while it's restarting its network,
+			 * changing its cert, and waiting to get the new certs
+			 * from the DB
+			 */
+			continue
 		}
+
+		if done.StatusCode != api.Success {
+			return fmt.Errorf(done.Err)
+		}
+
+		break
 	}
 
 	return nil

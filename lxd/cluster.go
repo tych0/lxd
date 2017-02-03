@@ -299,7 +299,7 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 	}
 
 	if req.Name == "" {
-		return BadRequest("must supply a cluster name")
+		return BadRequest(fmt.Errorf("must supply a cluster name"))
 	}
 
 	if req.Leader != "" && req.Certificate == "" || req.Password == "" {
@@ -307,70 +307,82 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 	}
 
 	run := func(*operation) error {
-		d.TCPSocket.Socket.Close()
+		if d.TCPSocket != nil {
+			return fmt.Errorf("not bound on TCP but clustering enabled?")
+		}
+
+		c, err := connectTo(req.Leader, req.Certificate)
+		if err != nil {
+			return err
+		}
+
+		myAddr, err := d.ClusterAddr()
+		if err != nil {
+			return err
+		}
+
+		cert, key, err := c.ClusterAdd(req.Name, myAddr, "")
+		if err != nil {
+			return err
+		}
+
+		err = ioutil.WriteFile(shared.VarPath("server.crt"), []byte(cert), 0600)
+		if err != nil {
+			return err
+		}
+
+		err = ioutil.WriteFile(shared.VarPath("server.key"), []byte(key), 0600)
+		if err != nil {
+			return err
+		}
+
+		err = d.readOnDiskTLSConfig()
+		if err != nil {
+			return err
+		}
+
+		err = d.UpdateHTTPsPort(daemonConfig["core.https_address"].Get(), true)
+		if err != nil {
+			return err
+		}
 
 		err = StartRQLite(d, req.Leader == "")
 		if err != nil {
-			return InternalError(err)
+			return err
 		}
-	}
 
-	if req.Leader {
 		_, err = store.WaitForLeader(5 * time.Second)
 		if err != nil {
 			StopRQLite()
-			return InternalError(fmt.Errorf("timed out waiting for initial leader"))
+			return fmt.Errorf("timed out waiting for initial leader")
 		}
 
-		cert, err := ioutil.ReadFile(shared.VarPath("server.crt"))
-		if err != nil {
-			StopRQLite()
-			return InternalError(err)
-		}
-
-		addr, err := d.ClusterAddr()
-		if err != nil {
-			StopRQLite()
-			return InternalError(err)
-		}
-
-		me := addMemberStmt(addr, req.Name, string(cert))
-
-		result, err := store.Execute([]string{CURRENT_SCHEMA, enableForeignKeys, me}, false, false)
-		if err != nil {
-			StopRQLite()
-			return InternalError(err)
-		}
-
-		for _, r := range result {
-			if r.Error != "" {
-				StopRQLite()
-				return InternalError(fmt.Errorf(r.Error))
-			}
-		}
-
-		err = peerStore.RefreshMembers()
-		if err != nil {
-			StopRQLite()
-			return InternalError(err)
-		}
-	}
-
-	go func() {
-		var err error
-
-		/* this is a little bit of a hack; really we should probably do this on Accept */
-		for {
-			if store == nil {
-				return
-			}
-
-			_, err = store.WaitForLeader(5 * time.Second)
+		if req.Leader == "" {
+			cert, err := ioutil.ReadFile(shared.VarPath("server.crt"))
 			if err != nil {
-				continue
+				StopRQLite()
+				return err
 			}
 
-			break
+			addr, err := d.ClusterAddr()
+			if err != nil {
+				StopRQLite()
+				return err
+			}
+
+			result, err := store.Execute([]string{CURRENT_SCHEMA, enableForeignKeys, me}, false, false)
+			initializeDbObject
+			dbAddMember(d.db, addr, req.Name)
+			if err != nil {
+				StopRQLite()
+				return err
+			}
+
+			err = peerStore.RefreshMembers()
+			if err != nil {
+				StopRQLite()
+				return err
+			}
 		}
 
 		d.db, err = sql.Open("lxdrqlite", "unused")
@@ -378,24 +390,32 @@ func clusterPost(d *Daemon, r *http.Request) Response {
 			store.Close(false)
 			store = nil
 			shared.LogErrorf("couldn't open rqlite DB connection: %s", err)
-			return
+			return err
 		}
 
 		certs, err := dbCertsGet(d.localDB)
 		if err != nil {
-			shared.LogErrorf("couldn't get old certs, not porting them to cluster: %s", err)
-			return
+			return err
 		}
 
 		for _, c := range certs {
 			err := dbCertSave(d.db, c)
 			if err != nil {
-				shared.LogErrorf("couldn't write new certs %s", err)
+				return err
 			}
 		}
-	}()
 
-	return EmptySyncResponse
+		/* now, make sure we have all the certs from everyone else too */
+		readSavedClientCAList(d)
+		return nil
+	}
+
+	op, err := operationCreate(operationClassTask, nil, nil, run, nil, nil)
+	if err != nil {
+		return InternalError(err)
+	}
+
+	return OperationResponse(op)
 }
 
 var clusterCmd = Command{
@@ -412,7 +432,7 @@ func clusterNodesGet(d *Daemon, r *http.Request) Response {
 	return SyncResponse(true, shared.ClusterStatus{peerStore.members})
 }
 
-func dbAddMember(db *sql.DB) error {
+func dbAddMember(db *sql.DB, addr string, name string) error {
 	_, err := db.Exec("INSERT INTO cluster_nodes (addr, name) VALUES (?, ?)", addr, name)
 	return err
 }
@@ -425,7 +445,7 @@ func clusterNodesPost(d *Daemon, r *http.Request) Response {
 		return BadRequest(err)
 	}
 
-	if m["password"] != daemonConfig["core.trust_password"].Get() {
+	if !d.isTrustedClient(r) || m["password"] != daemonConfig["core.trust_password"].Get() {
 		return Forbidden
 	}
 
@@ -440,15 +460,15 @@ func clusterNodesPost(d *Daemon, r *http.Request) Response {
 	}
 
 	md := map[string]string{
-		"certificate": cert,
-		"key": key,
+		"certificate": string(cert),
+		"key": string(key),
 	}
 
 	run := func(*operation) error {
 		var err error
 		for i := 0; i < 5; i++ {
 			/* give this server some time to switch its cert */
-			err = store.Join(m.Addr)
+			err = store.Join(m["addr"])
 			if err != nil {
 				time.Sleep(1 * time.Second)
 				continue
@@ -458,7 +478,7 @@ func clusterNodesPost(d *Daemon, r *http.Request) Response {
 		}
 
 		if err != nil {
-			err = dbAddMember(d.db)
+			err = dbAddMember(d.db, m["addr"], m["name"])
 			if err != nil {
 				return err
 			}
@@ -467,7 +487,7 @@ func clusterNodesPost(d *Daemon, r *http.Request) Response {
 		return err
 	}
 
-	op, err := operationCreate(operationClassTask, resources, md, run, nil, nil)
+	op, err := operationCreate(operationClassTask, nil, md, run, nil, nil)
 	if err != nil {
 		return InternalError(err)
 	}
@@ -746,13 +766,6 @@ func ClusterMembers() []shared.ClusterMember {
 		return nil
 	}
 	return peerStore.members
-}
-
-func addMemberStmt(addr, name, certificate string) string {
-	// XXX: this could be sql injected. unfortunately rqlite
-	// doesn't support prepared statements:
-	// https://github.com/rqlite/rqlite/issues/140
-	return fmt.Sprintf("INSERT INTO cluster_nodes (addr, name, certificate) values ('%s', '%s', '%s')", addr, name, certificate)
 }
 
 func observer() {
