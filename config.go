@@ -158,8 +158,10 @@ func (c *Config) ParseRemote(raw string) string {
 	return strings.SplitN(raw, ":", 2)[0]
 }
 
-func (c *Config) ConfigPath(file string) string {
-	return path.Join(c.ConfigDir, file)
+func (c *Config) ConfigPath(files ...string) string {
+	items := []string{c.ConfigDir}
+	items = append(items, files...)
+	return path.Join(items...)
 }
 
 func (c *Config) ServerCertPath(name string) string {
