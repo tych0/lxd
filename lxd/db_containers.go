@@ -153,7 +153,14 @@ func dbContainerCreate(db *sql.DB, args containerArgs) (int, error) {
 		return 0, err
 	}
 	defer stmt.Close()
-	result, err := stmt.Exec(args.Name, args.Architecture, args.Ctype, ephemInt, args.CreationDate.Unix(), args.LastUsedDate.Unix(), statefulInt, )
+
+	clusterID, err := MyClusterId()
+	if err != nil {
+		tx.Rollback()
+		return 0, err
+	}
+
+	result, err := stmt.Exec(args.Name, args.Architecture, args.Ctype, ephemInt, args.CreationDate.Unix(), args.LastUsedDate.Unix(), statefulInt, clusterID)
 	if err != nil {
 		tx.Rollback()
 		return 0, err

@@ -125,8 +125,31 @@ func (c *clusterCmd) add(config *lxd.Config, args []string) error {
 		return err
 	}
 
+	/* now fixup the certs: the new cluster node wlil have switched
+	 * to its new cert, which is the cert of the cluster; let's
+	 * move the old cert to .precluster, and copy the cluster's
+	 * cert in its place.
+	 */
+	nodeCert := cc.Config.ConfigPath("servercerts", args[1] + ".crt")
+	err = os.Rename(nodeCert, nodeCert + ".precluster")
+	if err != nil {
+		return err
+	}
+
+	clusterCert := cc.Config.ConfigPath("servercerts", args[0] + ".crt")
+	err = shared.FileCopy(clusterCert, nodeCert)
+	if err != nil {
+		return err
+	}
+
+	nc, err = lxd.NewClient(config, node)
+	if err != nil {
+		return err
+	}
+
 	for i := 0; i < 5; i ++{
-		done, err := nc.WaitFor(resp.Operation)
+		var done *api.Operation
+		done, err = nc.WaitFor(resp.Operation)
 		if err != nil  {
 			/* network errors while it's restarting its network,
 			 * changing its cert, and waiting to get the new certs
